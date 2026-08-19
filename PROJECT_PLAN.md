@@ -1,6 +1,11 @@
 # SicherVergabe — Projektplan
 
-> Status: **Planungsphase**. Es wurde noch kein Anwendungscode implementiert.
+> Status: **Phase 1 abgeschlossen** (Stand: August 2026).
+> Das Fundament, das Kerndatenmodell, die vollständige Ingestion-Pipeline mit
+> DEMO-Quelle sowie Dashboard, Ausschreibungssuche und Detailansicht sind
+> implementiert. Der tatsächliche Umsetzungsstand ist in Kapitel 12
+> dokumentiert.
+>
 > Dieses Dokument beschreibt Architektur, Datenmodell, Connector-Design,
 > Auth/Rollen, API-Struktur, Import-/Normalisierungsprozess,
 > Dokumentenverarbeitung/KI-Integration und die Entwicklungsphasen.
@@ -506,3 +511,164 @@ Auth-Grundgerüst, Migrationssystem, CI-Grundgerüst, Basis-Layout.
 
 > Jede Phase liefert ein lauffähiges, testbares Increment. Kein Phasenwechsel
 > ohne Migrationen, Tests und Dokumentationsupdate.
+
+---
+
+## 12. Umsetzungsstand
+
+> Dieses Kapitel dokumentiert, was tatsächlich implementiert ist. Die Kapitel
+> 1–11 beschreiben den Zielzustand.
+
+### 12.1 Phase 1 — abgeschlossen
+
+**Fundament**
+
+- Next.js 16 (App Router), React 19, TypeScript im Strict-Modus mit zusätzlich
+  `noUncheckedIndexedAccess`, `noImplicitOverride`,
+  `noFallthroughCasesInSwitch`.
+- Tailwind CSS 4 mit semantischen Design-Tokens; Hell/Dunkel/System als
+  Klassenumschaltung auf `<html>`, angewandt vor dem ersten Rendering.
+- ESLint (eslint-config-next), Skripte `typecheck`, `lint`, `verify`.
+- Strukturiertes JSON-Logging mit Kontext und Redaction von
+  Credential-Feldern; typisierte Fehlerklassen mit einheitlichem API-Format.
+
+**Datenbank** — sechs Migrationen, 17 Tabellen, RLS auf allen Tabellen
+
+- Ingestion: `sources`, `connector_runs`, `raw_imports`, `normalization_runs`
+- Ausschreibungen: `tenders`, `tender_lots`, `tender_requirements`,
+  `tender_documents`, `contracting_authorities`, `awards`,
+  `tender_duplicate_candidates`
+- Mandanten: `organizations`, `profiles`, `organization_members`
+- Arbeitsbereich: `company_profiles`, `favorites`, `search_profiles`,
+  `watched_authorities`, `audit_log`
+
+Auf Millionen Datensätze ausgelegt: GIN-Index auf der generierten
+`tsvector`-Spalte (deutsche Konfiguration, Titel höher gewichtet), GIN-Indizes
+auf `cpv_codes`, `sectors`, `nuts_codes`, Trigram-Index auf `title` für
+Dublettenerkennung, Composite-Index in der Sortierreihenfolge der Trefferliste
+sowie ein partieller Index auf offene Fristen, der unabhängig von der
+Archivgröße klein bleibt. Eine spätere Umstellung auf Range-Partitionierung
+nach `publication_date` ist in der Migration vermerkt.
+
+**Pipeline** — vollständig, end-to-end nachweisbar
+
+`Demo Source → Connector → Raw Import → Normalizer → Database → UI`
+
+- Connector-Interface plus Registry; Aktivierung über `sources.is_active`,
+  nicht über ein Deployment.
+- DEMO-Connector mit 12 synthetischen Ausschreibungen über alle neun
+  Startbranchen, mit Losen, Eignungs- und Personalanforderungen, Unterlagen
+  und zwei Zuschlägen. Das Rohformat ist bewusst ein deutsches Portalformat
+  (`DD.MM.YYYY`, `1.250.000,00 EUR`, deutsche Enum-Werte), sodass der Mapper
+  echte Übersetzungsarbeit leistet.
+- Rohdaten werden unverändert mit SHA-256-Hash persistiert; ein
+  unveränderter Datensatz wird beim erneuten Lauf übersprungen
+  (nachgewiesen: Lauf 1 = 12 importiert, Lauf 2 = 12 übersprungen).
+- Fehler eines Datensatzes brechen den Lauf nicht ab; Fehler einer Quelle
+  blockieren andere Quellen nicht. Jeder Lauf wird protokolliert.
+- Dublettenerkennung über einen Inhalts-Fingerprint (Titel, Auftraggeber,
+  Fristtag, Wert), quellenübergreifend ausgelegt.
+
+**Speicher-Adapter**
+
+Die Oberfläche kennt nur die Ports `TenderRepository` und `IngestionStore`.
+Zwei Implementierungen: PostgreSQL über Supabase (Produktivpfad) und ein
+prozessinterner Speicher für den lokalen DEMO-Modus. Der DEMO-Modus ist kein
+Umgehen der Architektur — dieselbe Pipeline läuft, nur mit anderem
+Persistenz-Adapter, und erzeugt ausschließlich `is_demo`-Datensätze.
+
+**Authentifizierung und Rollen**
+
+- Supabase Auth (E-Mail/Passwort), Session-Refresh in der Middleware,
+  Routenschutz zusätzlich serverseitig über `requireSession()`.
+- Mandantenfähig über `organizations` + `organization_members`.
+- Vier Rollen (`super_admin`, `org_admin`, `bid_manager`, `viewer`) mit
+  14 Berechtigungen; Durchsetzung doppelt — RLS-Richtlinien in der Datenbank
+  und `requirePermission()` im Servercode.
+- Ohne Supabase-Konfiguration greift eine fest verdrahtete Demo-Session, die
+  in der Oberfläche als solche ausgewiesen wird.
+
+**Oberfläche** — 20 Routen, alle erreichbar
+
+Enterprise-Design mit fester Sidebar, Topbar, hoher Informationsdichte,
+Status-Badges und responsivem Verhalten von 390 px bis 1600 px.
+
+**Datenintegrität**
+
+Demo-Daten sind auf jeder Ebene gekennzeichnet: `is_demo` in der Datenbank,
+ein Datenbank-Trigger, der Datensätze einer Demo-Quelle ohne dieses Flag
+zurückweist, DEMO-Badges an jedem Datensatz in der Oberfläche, ein Hinweis in
+der Sidebar und ein Banner auf dem Dashboard.
+
+### 12.2 Seiten und Routen
+
+| Route                  | Stand                                                        |
+|------------------------|--------------------------------------------------------------|
+| `/`                    | Weiterleitung auf `/dashboard`                               |
+| `/login`               | Anmeldung (im DEMO-Modus mit Hinweis statt Formular)         |
+| `/dashboard`           | Voll funktional: 6 Kennzahlen, letzte Ausschreibungen, Fristen |
+| `/tenders`             | Voll funktional: Volltextsuche, 13 Filter, Sortierung, Paginierung |
+| `/tenders/[id]`        | Voll funktional: 8 Fachbereiche plus vorbereitete Platzhalter |
+| `/matches`             | Funktional auf Basis der regelbasierten Vorbewertung          |
+| `/deadlines`           | Voll funktional: Gruppierung nach Dringlichkeit               |
+| `/authorities`         | Voll funktional: Suche, Kennzahlen, Paginierung               |
+| `/authorities/[id]`    | Voll funktional: Ausschreibungen und Vergabehistorie          |
+| `/awards`              | Voll funktional                                              |
+| `/documents`           | Metadaten funktional; Download ab Phase 3                    |
+| `/search-profiles`     | Vorbereitet; Speichern ab Phase 2                            |
+| `/company`             | Stammdaten und Bewertungsprofil sichtbar; Pflege ab Phase 4  |
+| `/ai-analysis`         | Dokumentiert die geplante Analysekette; kein KI-Dienst aktiv |
+| `/sources`             | Voll funktional: Quellen, Läufe, Connector-Registry          |
+| `/admin`               | Voll funktional: Rollen-/Rechtematrix, Organisation          |
+| `/api/v1/tenders`      | Suche über die normalisierten Daten                          |
+| `/api/v1/tenders/[id]` | Einzelne Ausschreibung                                       |
+| `/api/v1/internal/ingestion/run` | Import-Trigger, Bearer-Token, Constant-Time-Vergleich |
+
+### 12.3 Bewusst nicht umgesetzt
+
+- **Keine Live-Vergabequelle.** TED / EU eForms und die deutschen Portale
+  folgen in Phase 2.
+- **Kein KI-Dienst.** `ANTHROPIC_API_KEY` bleibt ungenutzt. Der auf den
+  Detailseiten sichtbare Match Score ist ausdrücklich vorläufig und
+  regelbasiert (Branche, CPV, Region, Auftragswert) und als solcher
+  gekennzeichnet.
+- **Kein Dokumenten-Download.** Es werden nur die von der Quelle gemeldeten
+  Metadaten angezeigt; der Status „Ausstehend“ ist deshalb der Normalfall.
+- **Keine Schreibfunktionen im Arbeitsbereich.** Favoriten, Suchprofile,
+  Unternehmensprofil und Kalkulation haben Tabellen und RLS, aber noch keine
+  Formulare.
+
+### 12.4 Bekannte offene Punkte
+
+1. **Relevanzsortierung.** PostgREST kann nicht nach `ts_rank` sortieren; die
+   Sortierung „Relevanz“ fällt im Supabase-Adapter auf Aktualität zurück. Eine
+   RPC-Funktion löst das in Phase 2. Der In-Memory-Adapter sortiert bereits
+   nach Trefferzahl.
+2. **Mehrfachauswahl in Filtern.** Datenmodell, Query-Schema und beide Adapter
+   unterstützen mehrere Werte je Filter (kommasepariert); die Oberfläche bietet
+   vorerst Einfachauswahl.
+3. **Auftraggeber-Kennzahlen.** Die Zählungen je Auftraggeber werden im
+   Supabase-Adapter pro Zeile ermittelt. Ab einigen tausend Auftraggebern ist
+   dafür eine materialisierte Sicht nötig.
+4. **Top Matches.** Die Rangfolge wird in der Anwendung über ein Fenster von
+   maximal 100 offenen Ausschreibungen gebildet, weil die regelbasierte
+   Vorbewertung keine SQL-Entsprechung hat. Ab Phase 3 werden Scores je
+   Organisation persistiert und indiziert sortiert.
+5. **Ohne Unternehmensprofil sind viele Scores identisch.** Das ist korrekt —
+   das neutrale Standardprofil trifft keine Annahmen. Aussagekräftig wird die
+   Bewertung erst mit gepflegtem Profil (Phase 4).
+6. **Keine automatisierten Tests.** Typecheck, Lint und Build sind
+   eingerichtet; Unit- und E2E-Tests folgen mit der ersten echten Quelle.
+7. **DEMO-Modus ohne Persistenz.** Ohne Supabase liegt der Datenbestand im
+   Prozessspeicher und geht beim Neustart verloren. Für die Entwicklung
+   beabsichtigt.
+
+### 12.5 Empfohlene nächste Schritte (Phase 2)
+
+1. Supabase-Projekt anlegen, Migrationen anwenden, erste echte Organisation
+   und Nutzer einrichten.
+2. TED-/EU-eForms-Connector als eigenes Modul ergänzen, zusammen mit einem
+   Mapper — ohne Änderung an Oberfläche oder Datenmodell.
+3. RPC-Funktion für die Volltext-Relevanzsortierung.
+4. Suchprofile, Favoriten und Benachrichtigungen als Schreibfunktionen.
+5. Scheduler für den regelmäßigen Import einrichten.
