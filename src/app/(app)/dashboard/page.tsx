@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { TenderTable } from '@/components/tenders/tender-table';
-import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { Card, CardHeader } from '@/components/ui/card';
 import { LinkButton } from '@/components/ui/button';
 import { EmptyState, PageHeader, PageSection } from '@/components/ui/page';
 import { DemoBadge } from '@/components/ui/badge';
@@ -111,49 +111,45 @@ export default async function DashboardPage() {
         </div>
       </PageSection>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader
-            title="Zuletzt veröffentlicht"
-            description="Die neuesten Ausschreibungen im Datenbestand"
+      {/* Full width: the table carries eight columns and must not be
+          squeezed into a side-by-side layout. */}
+      <Card>
+        <CardHeader
+          title="Zuletzt veröffentlicht"
+          description="Die neuesten Ausschreibungen im Datenbestand"
+          action={
+            <LinkButton href="/tenders" size="sm">
+              Alle anzeigen
+            </LinkButton>
+          }
+        />
+        {recent.length === 0 ? (
+          <EmptyState
+            title="Noch keine Ausschreibungen importiert"
+            description="Führen Sie den Import aus (npm run ingest:demo) oder aktivieren Sie eine Datenquelle."
             action={
-              <LinkButton href="/tenders" size="sm">
-                Alle anzeigen
+              <LinkButton href="/sources" size="sm">
+                Datenquellen öffnen
               </LinkButton>
             }
           />
-          {recent.length === 0 ? (
-            <EmptyState
-              title="Noch keine Ausschreibungen importiert"
-              description="Führen Sie den Import aus (npm run ingest:demo) oder aktivieren Sie eine Datenquelle."
-              action={
-                <LinkButton href="/sources" size="sm">
-                  Datenquellen öffnen
-                </LinkButton>
-              }
-            />
-          ) : (
-            /* The match column lives on its own screen; omitting it here
-               keeps the table readable next to the deadline rail. */
-            <TenderTable tenders={recent} showMatch={false} />
-          )}
-        </Card>
+        ) : (
+          <TenderTable tenders={recent} />
+        )}
+      </Card>
 
-        <Card>
-          <CardHeader
-            title="Nächste Fristen"
-            description="Angebotsfristen mit dem geringsten Vorlauf"
-            action={
-              <LinkButton href="/deadlines" size="sm">
-                Alle
-              </LinkButton>
-            }
-          />
-          <CardBody className="p-0">
-            <DeadlineList tenders={deadlines} />
-          </CardBody>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader
+          title="Nächste Fristen"
+          description="Angebotsfristen mit dem geringsten Vorlauf"
+          action={
+            <LinkButton href="/deadlines" size="sm">
+              Alle Fristen
+            </LinkButton>
+          }
+        />
+        <DeadlineList tenders={deadlines} layout="grid" />
+      </Card>
     </div>
   );
 }

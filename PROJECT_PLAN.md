@@ -593,6 +593,13 @@ Persistenz-Adapter, und erzeugt ausschließlich `is_demo`-Datensätze.
 Enterprise-Design mit fester Sidebar, Topbar, hoher Informationsdichte,
 Status-Badges und responsivem Verhalten von 390 px bis 1600 px.
 
+Die Sidebar führt die zwölf vereinbarten Einträge in vier Gruppen. Das
+Dashboard zeigt die sechs Kennzahlen und darunter die Ausschreibungstabelle
+mit der festgelegten Spaltenfolge: Match, Titel, Auftraggeber, Ort,
+Auftragswert, Laufzeit, Frist, Status. Dieselbe Tabellenkomponente wird von
+Suche, Fristen und Auftraggeber-Detail wiederverwendet, damit ein Datensatz
+überall gleich gelesen wird.
+
 **Datenintegrität**
 
 Demo-Daten sind auf jeder Ebene gekennzeichnet: `is_demo` in der Datenbank,
@@ -606,7 +613,7 @@ der Sidebar und ein Banner auf dem Dashboard.
 |------------------------|--------------------------------------------------------------|
 | `/`                    | Weiterleitung auf `/dashboard`                               |
 | `/login`               | Anmeldung (im DEMO-Modus mit Hinweis statt Formular)         |
-| `/dashboard`           | Voll funktional: 6 Kennzahlen, letzte Ausschreibungen, Fristen |
+| `/dashboard`           | Voll funktional: 6 Kennzahlen, Ausschreibungstabelle (8 Spalten), Fristen |
 | `/tenders`             | Voll funktional: Volltextsuche, 13 Filter, Sortierung, Paginierung |
 | `/tenders/[id]`        | Voll funktional: 8 Fachbereiche plus vorbereitete Platzhalter |
 | `/matches`             | Funktional auf Basis der regelbasierten Vorbewertung          |
@@ -657,13 +664,38 @@ der Sidebar und ein Banner auf dem Dashboard.
 5. **Ohne Unternehmensprofil sind viele Scores identisch.** Das ist korrekt —
    das neutrale Standardprofil trifft keine Annahmen. Aussagekräftig wird die
    Bewertung erst mit gepflegtem Profil (Phase 4).
-6. **Keine automatisierten Tests.** Typecheck, Lint und Build sind
-   eingerichtet; Unit- und E2E-Tests folgen mit der ersten echten Quelle.
+6. **Keine automatisierten Tests im Repository.** Typecheck, Lint und Build
+   sind als Skripte eingerichtet und laufen fehlerfrei; die Navigations- und
+   Layoutprüfung erfolgte bislang manuell über einen Browser-Durchlauf.
+   Unit- und E2E-Tests als Teil des Repositories folgen mit der ersten echten
+   Quelle.
 7. **DEMO-Modus ohne Persistenz.** Ohne Supabase liegt der Datenbestand im
    Prozessspeicher und geht beim Neustart verloren. Für die Entwicklung
    beabsichtigt.
 
-### 12.5 Empfohlene nächste Schritte (Phase 2)
+### 12.5 Durchgeführte Prüfungen
+
+Stand des letzten Durchlaufs:
+
+| Prüfung                                   | Ergebnis |
+|-------------------------------------------|----------|
+| `npm install`                             | 382 Pakete, 0 Sicherheitslücken |
+| `npm run typecheck` (`tsc --noEmit`)      | fehlerfrei |
+| `npm run lint` (ESLint)                   | fehlerfrei, keine Warnungen |
+| `npm run build` (Production Build)        | erfolgreich, 20 Routen |
+| Erreichbarkeit aller Seiten               | 16 Seiten- und 2 Detailrouten liefern 200; unbekannte ID liefert 404 |
+| Navigation (Klickpfad im Browser)         | alle 12 Sidebar-Einträge navigieren korrekt, aktiver Zustand stimmt |
+| Drilldown Tabelle → Detail → zurück       | funktioniert |
+| Filter-Rundlauf (Branche „Reinigung")     | 2 Treffer, Filter steht in der URL |
+| Konsolenfehler / fehlende Ressourcen      | keine |
+| Responsivität 390 / 834 / 1600 px, hell + dunkel | kein horizontaler Überlauf |
+| DEMO-Kennzeichnung                        | jede Liste zeigt mindestens so viele DEMO-Badges wie Datensätze |
+| Import-Endpunkt                           | ohne/falsches Token 401, korrektes Token 200, unbekannte Quelle 404 |
+| Idempotenz des Imports                    | Lauf 1: 12 importiert · Lauf 2: 12 übersprungen |
+| Secret-Scan über den getrackten Code      | keine hartkodierten Secrets; `.env*` außer `.env.example` ignoriert |
+| `any` im Anwendungscode                   | nicht verwendet |
+
+### 12.6 Empfohlene nächste Schritte (Phase 2)
 
 1. Supabase-Projekt anlegen, Migrationen anwenden, erste echte Organisation
    und Nutzer einrichten.

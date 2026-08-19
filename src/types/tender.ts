@@ -269,6 +269,8 @@ export interface TenderListItem {
   sectors: string[];
   publicationDate: string | null;
   submissionDeadline: string | null;
+  /** Contract duration (Laufzeit) in months. */
+  durationMonths: number | null;
   estimatedValueNet: number | null;
   currency: string;
   status: TenderStatus;

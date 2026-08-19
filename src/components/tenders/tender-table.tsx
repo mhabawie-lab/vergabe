@@ -7,6 +7,7 @@ import {
   formatCurrency,
   formatDate,
   formatDeadlineDistance,
+  formatDuration,
 } from '@/lib/utils/format';
 import { scoreTender } from '@/modules/matching/preview';
 import type { TenderListItem } from '@/types/tender';
@@ -32,34 +33,52 @@ function deadlineToneClass(deadline: string | null): string {
   return 'text-text-secondary';
 }
 
+function scoreToneClass(score: number): string {
+  if (score >= 70) return 'text-success';
+  if (score >= 40) return 'text-warning';
+  return 'text-danger';
+}
+
 interface TenderTableProps {
   tenders: readonly TenderListItem[];
-  /** Hides the match column where it adds no information. */
+  /**
+   * Hides the match column. Only for contexts where the score carries no
+   * information — the ranking is the point of most tender lists.
+   */
   showMatch?: boolean;
   emptyMessage?: string;
 }
 
+/**
+ * The shared tender table.
+ *
+ * Column order follows the agreed layout: Match, Titel, Auftraggeber, Ort,
+ * Auftragswert, Laufzeit, Frist, Status. Used by the dashboard, the search
+ * results, the deadline screen and the authority detail page, so the same
+ * record reads identically everywhere.
+ */
 export function TenderTable({
   tenders,
   showMatch = true,
   emptyMessage = 'Keine Ausschreibungen gefunden.',
 }: TenderTableProps) {
-  const columnCount = showMatch ? 7 : 6;
+  const columnCount = showMatch ? 8 : 7;
 
   return (
     <TableContainer>
-      {/* Without the match column the table fits a narrower shell, so the
-          dashboard's two-column layout does not force a scrollbar. */}
-      <Table className={showMatch ? undefined : 'min-w-[44rem]'}>
+      <Table className={showMatch ? 'min-w-[64rem]' : 'min-w-[54rem]'}>
         <TableHead>
           <TableRow className="hover:bg-transparent">
-            <TableHeaderCell className="min-w-[22rem]">Ausschreibung</TableHeaderCell>
+            {showMatch && (
+              <TableHeaderCell className="w-[7.5rem]">Match</TableHeaderCell>
+            )}
+            <TableHeaderCell className="min-w-[20rem]">Titel</TableHeaderCell>
             <TableHeaderCell>Auftraggeber</TableHeaderCell>
             <TableHeaderCell>Ort</TableHeaderCell>
             <TableHeaderCell align="right">Auftragswert</TableHeaderCell>
-            <TableHeaderCell>Angebotsfrist</TableHeaderCell>
+            <TableHeaderCell>Laufzeit</TableHeaderCell>
+            <TableHeaderCell>Frist</TableHeaderCell>
             <TableHeaderCell>Status</TableHeaderCell>
-            {showMatch && <TableHeaderCell align="right">Match</TableHeaderCell>}
           </TableRow>
         </TableHead>
         <TableBody>
@@ -71,6 +90,22 @@ export function TenderTable({
 
               return (
                 <TableRow key={tender.id}>
+                  {showMatch && (
+                    <TableCell className="whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            'tabular text-sm font-semibold',
+                            scoreToneClass(preview.score),
+                          )}
+                        >
+                          {preview.score}&nbsp;%
+                        </span>
+                        <RecommendationBadge recommendation={preview.recommendation} />
+                      </div>
+                    </TableCell>
+                  )}
+
                   <TableCell className="max-w-[30rem]">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Link
@@ -120,6 +155,10 @@ export function TenderTable({
                     {formatCurrency(tender.estimatedValueNet, tender.currency)}
                   </TableCell>
 
+                  <TableCell className="tabular text-xs whitespace-nowrap">
+                    {formatDuration(tender.durationMonths)}
+                  </TableCell>
+
                   <TableCell className="whitespace-nowrap">
                     <span className="tabular block text-xs text-text-primary">
                       {formatDate(tender.submissionDeadline)}
@@ -137,17 +176,6 @@ export function TenderTable({
                   <TableCell>
                     <TenderStatusBadge status={tender.status} />
                   </TableCell>
-
-                  {showMatch && (
-                    <TableCell align="right" className="whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="tabular text-xs font-semibold text-text-primary">
-                          {preview.score}&nbsp;%
-                        </span>
-                        <RecommendationBadge recommendation={preview.recommendation} />
-                      </div>
-                    </TableCell>
-                  )}
                 </TableRow>
               );
             })

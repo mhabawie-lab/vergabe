@@ -279,6 +279,7 @@ export function toTenderListItem(row: TenderRow): TenderListItem {
     sectors: row.sectors ?? [],
     publicationDate: row.publication_date,
     submissionDeadline: row.submission_deadline,
+    durationMonths: row.duration_months,
     estimatedValueNet: toNumber(row.estimated_value_net),
     currency: row.currency,
     status: row.status,

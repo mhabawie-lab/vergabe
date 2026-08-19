@@ -20,7 +20,16 @@ function formatRemaining(days: number | null): string {
   return `Noch ${days} Tage`;
 }
 
-export function DeadlineList({ tenders }: { tenders: readonly TenderListItem[] }) {
+interface DeadlineListProps {
+  tenders: readonly TenderListItem[];
+  /**
+   * `rail` renders a divided single column for a narrow sidebar,
+   * `grid` spreads the entries across the full content width.
+   */
+  layout?: 'rail' | 'grid';
+}
+
+export function DeadlineList({ tenders, layout = 'rail' }: DeadlineListProps) {
   if (tenders.length === 0) {
     return (
       <EmptyState
@@ -30,14 +39,30 @@ export function DeadlineList({ tenders }: { tenders: readonly TenderListItem[] }
     );
   }
 
+  const isGrid = layout === 'grid';
+
   return (
-    <ul className="divide-y divide-border-subtle">
+    <ul
+      className={cn(
+        isGrid
+          ? 'grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3'
+          : 'divide-y divide-border-subtle',
+      )}
+    >
       {tenders.map((tender) => {
         const days = daysUntil(tender.submissionDeadline);
         const tone = urgencyClasses(days);
 
         return (
-          <li key={tender.id} className="px-5 py-3 transition-colors hover:bg-surface-sunken/50">
+          <li
+            key={tender.id}
+            className={cn(
+              'transition-colors',
+              isGrid
+                ? 'rounded-lg border border-border-subtle p-3 hover:border-border-strong'
+                : 'px-5 py-3 hover:bg-surface-sunken/50',
+            )}
+          >
             <Link href={`/tenders/${tender.id}`} className="block">
               <div className="flex items-start gap-2.5">
                 <span

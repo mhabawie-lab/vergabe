@@ -39,6 +39,7 @@ function toListItem(tender: Tender): TenderListItem {
     sectors: tender.sectors,
     publicationDate: tender.publicationDate,
     submissionDeadline: tender.submissionDeadline,
+    durationMonths: tender.durationMonths,
     estimatedValueNet: tender.estimatedValueNet,
     currency: tender.currency,
     status: tender.status,
