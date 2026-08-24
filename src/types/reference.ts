@@ -67,13 +67,55 @@ export const REFERENCE_SERVICE_CATEGORY_LABELS: Record<
   string
 > = {
   security: 'Sicherheitsdienst',
-  paramedic: 'Sanitätsdienst',
+  paramedic: 'Sanitätsdienst / Paramedic',
   cleaning: 'Reinigung',
-  warehouse: 'Lagerlogistik',
-  construction_support: 'Baustellenunterstützung',
+  warehouse: 'Lagerdienst',
+  construction_support: 'Bauunterstützung / Bauhelfer',
   facility_management: 'Facility Management',
-  other: 'Sonstige Leistung',
-  unknown: 'Nicht bestimmt',
+  other: 'Sonstige',
+  unknown: 'Unbekannt',
+};
+
+/**
+ * How a service classification reached its current state.
+ *
+ * The boolean `confirmedByUser` cannot tell an untouched proposal from a
+ * rejected one — both are false — so the status is carried alongside it.
+ */
+export const SERVICE_CONFIRMATION_STATUSES = [
+  'proposed',
+  'confirmed',
+  'manual',
+  'rejected',
+  'unknown',
+] as const;
+
+export type ServiceConfirmationStatus =
+  (typeof SERVICE_CONFIRMATION_STATUSES)[number];
+
+export const SERVICE_CONFIRMATION_STATUS_LABELS: Record<
+  ServiceConfirmationStatus,
+  string
+> = {
+  proposed: 'Vorschlag',
+  confirmed: 'Bestätigt',
+  manual: 'Manuell festgelegt',
+  rejected: 'Verworfen',
+  unknown: 'Unbekannt',
+};
+
+export const SERVICE_CONFIRMATION_STATUS_DESCRIPTIONS: Record<
+  ServiceConfirmationStatus,
+  string
+> = {
+  proposed:
+    'Automatisch erkannt und noch nicht geprüft. Zählt nicht als Nachweis.',
+  confirmed: 'Der Vorschlag wurde unverändert bestätigt und gilt als Nachweis.',
+  manual:
+    'Die Kategorie wurde von Hand festgelegt und bestätigt. Gilt als Nachweis.',
+  rejected: 'Der Vorschlag wurde als unzutreffend verworfen.',
+  unknown:
+    'Es wurde festgestellt, dass sich die Leistungsart nicht bestimmen lässt.',
 };
 
 export const CLASSIFICATION_SOURCES = [
@@ -159,7 +201,16 @@ export interface ReferenceProjectService {
   classificationSource: ClassificationSource;
   /** 0..1, or null when the source carries no confidence. */
   classificationConfidence: number | null;
+  /** True only for `confirmed` and `manual`. The single evidence flag. */
   confirmedByUser: boolean;
+  /** How the current state came about. */
+  confirmationStatus: ServiceConfirmationStatus;
+  /** When the decision was taken; null while still an untouched proposal. */
+  confirmedAt: string | null;
+  /** Who took the decision. */
+  confirmedBy: string | null;
+  /** Display name of `confirmedBy`, resolved for the UI. */
+  confirmedByName: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -226,8 +277,17 @@ export interface ReferenceProjectListItem {
   invoiceStatus: ReferenceInvoiceStatus;
   shiftSummaryRaw: string | null;
   serviceCategories: ReferenceServiceCategory[];
-  /** True while at least one service is still an unconfirmed proposal. */
+  /** True while at least one service is still an untouched proposal. */
   hasUnconfirmedServices: boolean;
+  /** True when no service counts as evidence yet. */
+  hasOnlyProposals: boolean;
+  /** Categories that count as evidence. */
+  confirmedServiceCategories: ReferenceServiceCategory[];
+  /** Open proposals, for the bulk-confirmation selection. */
+  openProposals: Array<{
+    serviceId: string;
+    serviceCategory: ReferenceServiceCategory;
+  }>;
   confidentialityLevel: ConfidentialityLevel;
 }
 

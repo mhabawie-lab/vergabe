@@ -5,16 +5,14 @@ import { Badge, type BadgeTone } from '@/components/ui/badge';
 import { LinkButton } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { DataList, DataRow, PageHeader, PhasePlaceholder } from '@/components/ui/page';
-import { ServiceBadge } from '@/components/references/service-badges';
-import { requirePermission } from '@/lib/auth/session';
+import { ServiceConfirmationPanel } from '@/components/references/service-confirmation-panel';
+import { hasPermission, requirePermission } from '@/lib/auth/session';
 import { getReferenceStore } from '@/lib/db';
 import { formatDate, formatDateTime } from '@/lib/utils/format';
-import {
-  CLASSIFICATION_PROPOSAL_NOTE,
-} from '@/modules/references/classification';
+import { CLASSIFICATION_PROPOSAL_NOTE } from '@/modules/references/classification';
+import { CONFIRMATION_ACTION_LABELS } from '@/modules/references/confirmation';
 import { SHIFT_MEANING_NOTE, formatShiftSummary } from '@/modules/references/shift-format';
 import {
-  CLASSIFICATION_SOURCE_LABELS,
   CONFIDENTIALITY_LEVEL_LABELS,
   REFERENCE_INVOICE_STATUS_LABELS,
   REFERENCE_PROJECT_STATUS_LABELS,
@@ -37,6 +35,15 @@ const STATUS_TONES: Record<ReferenceProjectStatus, BadgeTone> = {
   unknown: 'neutral',
 };
 
+/** Audit action codes as written by the API and the database trigger. */
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  service_confirmed: CONFIRMATION_ACTION_LABELS.confirm,
+  service_category_changed: CONFIRMATION_ACTION_LABELS.change_and_confirm,
+  service_marked_unknown: CONFIRMATION_ACTION_LABELS.mark_unknown,
+  service_rejected: CONFIRMATION_ACTION_LABELS.reject,
+  service_confirmation_reset: CONFIRMATION_ACTION_LABELS.reset,
+};
+
 export default async function ReferenceDetailPage({ params }: PageProps) {
   const session = await requirePermission('references:read');
 
@@ -48,7 +55,21 @@ export default async function ReferenceDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const unconfirmed = project.services.filter((service) => !service.confirmedByUser);
+  const canEdit = hasPermission(session, 'references:write');
+
+  // Open proposals are what still needs a decision; a rejected entry has been
+  // dealt with even though it is not evidence.
+  const openProposals = project.services.filter(
+    (service) => service.confirmationStatus === 'proposed',
+  );
+  const evidence = project.services.filter((service) => service.confirmedByUser);
+
+  const auditEntries = await store.listAuditEntries(
+    session.organization.id,
+    'reference_project_services',
+    project.services.map((service) => service.id),
+    25,
+  );
 
   return (
     <div className="space-y-5">
@@ -60,8 +81,14 @@ export default async function ReferenceDetailPage({ params }: PageProps) {
             <Badge tone={STATUS_TONES[project.projectStatus]}>
               {REFERENCE_PROJECT_STATUS_LABELS[project.projectStatus]}
             </Badge>
-            {unconfirmed.length > 0 && (
-              <Badge tone="warning">{unconfirmed.length} Vorschlag/Vorschläge offen</Badge>
+            {openProposals.length > 0 ? (
+              <Badge tone="warning">
+                {openProposals.length === 1
+                  ? '1 Vorschlag offen'
+                  : `${openProposals.length} Vorschläge offen`}
+              </Badge>
+            ) : (
+              evidence.length > 0 && <Badge tone="success">Leistungen bestätigt</Badge>
             )}
           </>
         }
@@ -129,47 +156,26 @@ export default async function ReferenceDetailPage({ params }: PageProps) {
           <Card>
             <CardHeader
               title="Leistungsarten"
-              description="Bestätigte Angaben und offene Vorschläge"
+              description={
+                canEdit
+                  ? 'Vorschläge prüfen und entscheiden. Erst eine Bestätigung macht daraus einen Nachweis.'
+                  : 'Bestätigte Angaben und offene Vorschläge'
+              }
+              action={
+                openProposals.length > 0 ? (
+                  <Badge tone="warning">
+                    {openProposals.length} offen
+                  </Badge>
+                ) : undefined
+              }
             />
-            <CardBody>
-              {project.services.length === 0 ? (
-                <p className="text-sm text-text-muted">
-                  Keine Leistungsart erfasst.
-                </p>
-              ) : (
-                <ul className="space-y-3">
-                  {project.services.map((service) => (
-                    <li
-                      key={service.id}
-                      className="rounded-lg border border-border-subtle p-3"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <ServiceBadge
-                          category={service.serviceCategory}
-                          confirmed={service.confirmedByUser}
-                        />
-                        {service.confirmedByUser ? (
-                          <Badge tone="success">Bestätigt</Badge>
-                        ) : (
-                          <Badge tone="warning">Vorschlag</Badge>
-                        )}
-                        <span className="text-[11px] text-text-muted">
-                          {CLASSIFICATION_SOURCE_LABELS[service.classificationSource]}
-                          {service.classificationConfidence !== null &&
-                            ` · Konfidenz ${Math.round(service.classificationConfidence * 100)} %`}
-                        </span>
-                      </div>
-                      {service.notes !== null && (
-                        <p className="mt-1.5 text-xs text-text-secondary">
-                          {service.notes}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
+            <CardBody className="space-y-3">
+              <ServiceConfirmationPanel
+                services={project.services}
+                canEdit={canEdit}
+              />
 
-              <p className="mt-3 rounded-lg border border-info/20 bg-info-subtle px-3 py-2 text-[11px] leading-snug text-info">
+              <p className="rounded-lg border border-info/20 bg-info-subtle px-3 py-2 text-[11px] leading-snug text-info">
                 {CLASSIFICATION_PROPOSAL_NOTE}
               </p>
             </CardBody>
@@ -229,14 +235,14 @@ export default async function ReferenceDetailPage({ params }: PageProps) {
             </CardBody>
           </Card>
 
-          {unconfirmed.length > 0 && (
+          {openProposals.length > 0 && (
             <Card>
               <CardHeader title="Datenwarnungen" />
               <CardBody>
                 <p className="text-sm text-text-secondary">
-                  {unconfirmed.length === 1
+                  {openProposals.length === 1
                     ? 'Eine Leistungsart ist noch ein unbestätigter Vorschlag.'
-                    : `${unconfirmed.length} Leistungsarten sind noch unbestätigte Vorschläge.`}{' '}
+                    : `${openProposals.length} Leistungsarten sind noch unbestätigte Vorschläge.`}{' '}
                   Solange sie offen sind, zählt diese Referenz nicht als Nachweis
                   und fließt nicht in Suchprofil-Vorschläge ein.
                 </p>
@@ -273,13 +279,47 @@ export default async function ReferenceDetailPage({ params }: PageProps) {
           </Card>
 
           <Card>
-            <CardHeader title="Audit-Historie" />
+            <CardHeader
+              title="Audit-Historie"
+              description="Entscheidungen zu Leistungsarten"
+            />
             <CardBody>
-              <p className="text-sm text-text-secondary">
-                Änderungen an dieser Referenz werden serverseitig im{' '}
-                <code className="tabular">audit_log</code> protokolliert. Die
-                Anzeige im Adminbereich folgt mit der Benutzerverwaltung.
-              </p>
+              {auditEntries.length === 0 ? (
+                <p className="text-sm text-text-secondary">
+                  Noch keine Entscheidung protokolliert. Änderungen werden
+                  serverseitig im <code className="tabular">audit_log</code>{' '}
+                  festgehalten.
+                </p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {auditEntries.map((entry) => {
+                    const previous = entry.metadata['previousCategory'];
+                    const next = entry.metadata['newCategory'];
+                    const changed =
+                      typeof previous === 'string' &&
+                      typeof next === 'string' &&
+                      previous !== next;
+
+                    return (
+                      <li key={entry.id} className="text-xs">
+                        <span className="font-medium text-text-primary">
+                          {AUDIT_ACTION_LABELS[entry.action] ?? entry.action}
+                        </span>
+                        {changed && (
+                          <span className="text-text-muted">
+                            {' '}
+                            ({String(previous)} → {String(next)})
+                          </span>
+                        )}
+                        <span className="tabular mt-0.5 block text-[11px] text-text-muted">
+                          {formatDateTime(entry.createdAt)}
+                          {entry.userName !== null && ` · ${entry.userName}`}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </CardBody>
           </Card>
         </aside>

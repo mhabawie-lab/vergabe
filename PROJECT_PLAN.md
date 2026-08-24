@@ -826,7 +826,7 @@ keinen Vorschlag. Die eigentliche Match-Engine ist nicht Teil dieser Phase.
 
 ### 13.8 Automatisierte Tests
 
-Erstmals im Projekt: **vitest**, 78 Tests in 5 Dateien.
+Erstmals im Projekt: **vitest**, 109 Tests in 6 Dateien.
 
 | Datei | Umfang |
 |---|---|
@@ -835,6 +835,7 @@ Erstmals im Projekt: **vitest**, 78 Tests in 5 Dateien.
 | `tests/validation.test.ts` | Schichtformat, Spaltenzuordnung, alle Validierungsregeln |
 | `tests/classification.test.ts` | Vorsichtige Leistungserkennung, keine Klassifikation unbekannter Namen |
 | `tests/import-pipeline.test.ts` | Dublettenerkennung, Testlauf ohne Speichern, bestätigter Import, Mandantentrennung, Suchprofil-Vorschläge |
+| `tests/service-confirmation.test.ts` | Alle fünf Entscheidungen, Berechtigungen, Mandantentrennung, Audit-Einträge, Sammelbestätigungsregeln, Auswirkung auf Kennzahlen und Vorschläge |
 
 ### 13.9 Supabase
 
@@ -856,34 +857,77 @@ Der lokale Adapter ist flüchtig. Die Oberfläche weist auf `/customers` und im
 Importdialog ausdrücklich darauf hin, dass dort keine echten Kundendaten
 erfasst werden sollen.
 
-### 13.10 Bekannte offene Punkte
+### 13.10 Bestätigung von Leistungsarten
 
-1. **Leistungsbestätigung noch ohne Oberfläche.** Der Speicher-Port
-   (`setServiceConfirmation`) und die Mandantenprüfung stehen und sind
-   getestet; die Schaltfläche auf der Referenz-Detailseite fehlt noch. Bis
-   dahin bleiben importierte Leistungsarten Vorschläge — Suchprofil-Vorschläge
-   entstehen daher in der Praxis erst nach diesem Schritt.
-2. **Kunden anlegen und bearbeiten nur über den Import.** `createClient` und
+Nachgereicht und damit die letzte offene Lücke aus Phase 2 geschlossen.
+
+**Migration** `0009_service_confirmation.sql` — rein additiv: neue Spalten
+`confirmation_status`, `confirmed_at`, `confirmed_by`. Bestehende Zeilen werden
+aus `confirmed_by_user` abgeleitet (bereits bestätigte gelten als `manual`,
+weil nicht rekonstruierbar ist, ob sie dem ursprünglichen Vorschlag
+entsprachen). Keine Spalte entfällt, keine Zeile wird gelöscht.
+
+**Fünf Zustände**, weil der Boolean allein zu wenig sagt — ein unangetasteter
+und ein geprüfter Vorschlag sind beide `false`:
+
+| Status | Nachweis? |
+|---|---|
+| `proposed` — automatisch erkannt, ungeprüft | nein |
+| `confirmed` — Vorschlag unverändert bestätigt | **ja** |
+| `manual` — Kategorie von Hand festgelegt und bestätigt | **ja** |
+| `rejected` — Vorschlag verworfen | nein |
+| `unknown` — Leistung nicht bestimmbar | nein |
+
+**Fünf Aktionen** auf `/references/[id]`: bestätigen, Kategorie ändern und
+bestätigen, als unbekannt markieren, verwerfen, Bestätigung zurücksetzen.
+Angezeigt werden Kategorie, Anzeigename, Erkennungsquelle, Konfidenz, Status,
+Zeitpunkt, entscheidende Person und Notiz.
+
+Eine unbestimmte Kategorie lässt sich **nicht** bestätigen — das wäre die
+Behauptung, etwas festgestellt zu haben, was nicht festgestellt wurde. Die
+Schaltfläche wird dort gar nicht erst angeboten.
+
+**Sammelbestätigung** auf `/references` nur bei einheitlicher Kategorie, nur
+für offene Vorschläge, nie für `unknown`, nur mit ausdrücklichem
+Bestätigungskennzeichen. Die Auswahl wird serverseitig frisch gelesen und die
+Regel erneut geprüft.
+
+**Berechtigungen**: `references:write` haben `bid_manager`, `org_admin` und
+`super_admin`; `viewer` sieht dieselben Informationen ohne Bedienelemente.
+Geprüft wird doppelt — `requirePermission` vor dem Lesen und
+Organisationsbindung im Speicher, wobei eine fremde ID als „nicht gefunden"
+zurückkommt, damit ihre Existenz nicht ableitbar ist.
+
+**Audit**: Jede Entscheidung schreibt Organisation, Benutzer, Referenzprojekt,
+alten und neuen Wert, Aktion und Zeitstempel — über den Datenbank-Trigger
+`log_service_confirmation` und zusätzlich über die API, damit beide Speicher
+gleichermaßen nachvollziehbar sind. Die Historie ist auf der Detailseite
+sichtbar.
+
+### 13.11 Bekannte offene Punkte
+
+1. **Kunden anlegen und bearbeiten nur über den Import.** `createClient` und
    `updateClient` sind implementiert, ein eigenes Formular auf `/customers`
    fehlt.
-3. **Leistungsfilter im Supabase-Adapter wirken nur auf der geladenen Seite.**
+2. **Leistungs- und Bestätigungsfilter im Supabase-Adapter wirken nur auf der
+   geladenen Seite.**
    PostgREST kann „enthält eine dieser Kategorien" nicht zusammen mit den
    übrigen Filtern ausdrücken; sauber löst das eine RPC-Funktion. Der
    In-Memory-Adapter filtert bereits vollständig.
-4. **Kundenliste lädt alle Projekte der Organisation** für die Aggregate. Ab
+3. **Kundenliste lädt alle Projekte der Organisation** für die Aggregate. Ab
    einigen Tausend Projekten braucht es eine materialisierte Sicht.
-5. **RLS ist nicht gegen eine echte Datenbank getestet.** Die
+4. **RLS ist nicht gegen eine echte Datenbank getestet.** Die
    Mandantentrennung ist im lokalen Adapter getestet; die Richtlinien selbst
    lassen sich erst mit Supabase-Zugang prüfen.
-6. **PDF-Import und OCR fehlen** — bewusst außerhalb dieser Phase.
-7. **Referenznachweise als Dokumente** folgen mit der Dokumentenverarbeitung.
+5. **PDF-Import und OCR fehlen** — bewusst außerhalb dieser Phase.
+6. **Referenznachweise als Dokumente** folgen mit der Dokumentenverarbeitung.
+7. **Notizfeld bei einer Entscheidung** wird von der API unterstützt, hat aber
+   noch kein Eingabefeld in der Oberfläche.
 
-### 13.11 Nächste sinnvolle Schritte
+### 13.12 Nächste sinnvolle Schritte
 
 1. Supabase-Projekt anlegen, Migrationen anwenden, RLS gegen die echte
    Datenbank prüfen.
-2. Bestätigen von Leistungsarten in der Oberfläche ergänzen — es ist der
-   Schlüssel, damit Referenzen als Nachweis zählen.
-3. Kundenformular für Anlage und Bearbeitung.
-4. Bedeutung der Schichtzahlen klären und erst danach benennen.
-5. Erst dann TED/eForms als erste Live-Quelle.
+2. Kundenformular für Anlage und Bearbeitung.
+3. Bedeutung der Schichtzahlen klären und erst danach benennen.
+4. Erst dann TED/eForms als erste Live-Quelle.

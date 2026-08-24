@@ -80,8 +80,17 @@ export const referenceQuerySchema = z.object({
   objectType: optionalTrimmed,
   services: csvArray,
   statuses: csvArray,
-  /** `confirmed` = every service confirmed, `open` = at least one proposal. */
+  /** `confirmed` = every service decided, `open` = at least one proposal. */
   referenceStatus: z.enum(['confirmed', 'open']).optional().catch(undefined),
+  /**
+   * Confirmation state of the services.
+   * `evidence` = at least one confirmed service, `proposed` = only untouched
+   * proposals, `undecided` = at least one open proposal.
+   */
+  confirmationStatus: z
+    .enum(['evidence', 'proposed', 'undecided'])
+    .optional()
+    .catch(undefined),
   periodFrom: optionalIsoDate,
   periodTo: optionalIsoDate,
   sort: z.enum(['project_name', 'start_date', 'client']).catch('start_date'),
@@ -132,6 +141,7 @@ export function countActiveReferenceFilters(query: ReferenceQuery): number {
     query.services?.length ? query.services : undefined,
     query.statuses?.length ? query.statuses : undefined,
     query.referenceStatus,
+    query.confirmationStatus,
     query.periodFrom,
     query.periodTo,
   ].filter((value) => value !== undefined).length;
@@ -169,6 +179,7 @@ export function referenceQueryToParams(
   setValue('region', query.region);
   setValue('objectType', query.objectType);
   setValue('referenceStatus', query.referenceStatus);
+  setValue('confirmationStatus', query.confirmationStatus);
   setValue('periodFrom', query.periodFrom);
   setValue('periodTo', query.periodTo);
   if (query.services !== undefined && query.services.length > 0) {
@@ -194,3 +205,12 @@ export function isServiceCategory(value: string): boolean {
 export function isProjectStatus(value: string): boolean {
   return (REFERENCE_PROJECT_STATUSES as readonly string[]).includes(value);
 }
+
+export const CONFIRMATION_FILTER_LABELS: Record<
+  NonNullable<ReferenceQuery['confirmationStatus']>,
+  string
+> = {
+  evidence: 'Mit bestätigter Leistung',
+  proposed: 'Nur Vorschläge',
+  undecided: 'Offene Vorschläge vorhanden',
+};

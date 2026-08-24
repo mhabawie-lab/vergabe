@@ -9,6 +9,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PaginatedResult } from '../ports';
 import type {
+  AuditEntry,
+  AuditEntryInput,
   ClientDetail,
   CreateClientInput,
   CreateImportInput,
@@ -17,7 +19,13 @@ import type {
   ReferenceFacets,
   ReferenceMetrics,
   ReferenceStore,
+  ServiceDecisionInput,
+  ServiceDecisionResult,
 } from '../reference-ports';
+import {
+  applyConfirmationAction,
+  countsAsEvidence,
+} from '@/modules/references/confirmation';
 import { asRow, asRows } from './rows';
 import type { DuplicateCandidateSource } from '@/modules/references/dedupe';
 import {
@@ -40,6 +48,7 @@ import type {
   ReferenceProjectService,
   ReferenceProjectStatus,
   ReferenceServiceCategory,
+  ServiceConfirmationStatus,
   ValidationMessage,
 } from '@/types/reference';
 
@@ -68,9 +77,13 @@ interface ServiceRow {
   classification_source: ClassificationSource;
   classification_confidence: string | number | null;
   confirmed_by_user: boolean;
+  confirmation_status: ServiceConfirmationStatus;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
+  profiles?: { full_name: string | null; email: string } | null;
 }
 
 interface ProjectRow {
@@ -134,7 +147,7 @@ const PROJECT_COLUMNS = `
   project_status, invoice_status, shift_summary_raw, shift_values, description,
   confidentiality_level, source_import_id, created_at, updated_at,
   business_clients ( name ),
-  reference_project_services ( * )
+  reference_project_services ( *, profiles ( full_name, email ) )
 `;
 
 function toNumber(value: string | number | null): number | null {
@@ -167,6 +180,10 @@ function toService(row: ServiceRow): ReferenceProjectService {
     classificationSource: row.classification_source,
     classificationConfidence: toNumber(row.classification_confidence),
     confirmedByUser: row.confirmed_by_user,
+    confirmationStatus: row.confirmation_status,
+    confirmedAt: row.confirmed_at,
+    confirmedBy: row.confirmed_by,
+    confirmedByName: row.profiles?.full_name ?? row.profiles?.email ?? null,
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -220,7 +237,25 @@ function toListItem(row: ProjectRow): ReferenceProjectListItem {
     invoiceStatus: row.invoice_status,
     shiftSummaryRaw: row.shift_summary_raw,
     serviceCategories: services.map((service) => service.serviceCategory),
-    hasUnconfirmedServices: services.some((service) => !service.confirmedByUser),
+    hasUnconfirmedServices: services.some(
+      (service) => service.confirmationStatus === 'proposed',
+    ),
+    hasOnlyProposals:
+      services.length > 0 &&
+      !services.some((service) => countsAsEvidence(service.confirmationStatus)),
+    confirmedServiceCategories: [
+      ...new Set(
+        services
+          .filter((service) => countsAsEvidence(service.confirmationStatus))
+          .map((service) => service.serviceCategory),
+      ),
+    ],
+    openProposals: services
+      .filter((service) => service.confirmationStatus === 'proposed')
+      .map((service) => ({
+        serviceId: service.id,
+        serviceCategory: service.serviceCategory,
+      })),
     confidentialityLevel: row.confidentiality_level,
   };
 }
@@ -301,7 +336,7 @@ export class SupabaseReferenceStore implements ReferenceStore {
         confirmedServiceCategories: [
           ...new Set(
             services
-              .filter((service) => service.confirmed_by_user)
+              .filter((service) => countsAsEvidence(service.confirmation_status))
               .map((service) => service.service_category),
           ),
         ],
@@ -424,14 +459,14 @@ export class SupabaseReferenceStore implements ReferenceStore {
       confirmedServiceCategories: [
         ...new Set(
           services
-            .filter((service) => service.confirmed_by_user)
+            .filter((service) => countsAsEvidence(service.confirmation_status))
             .map((service) => service.service_category),
         ),
       ],
       proposedServiceCategories: [
         ...new Set(
           services
-            .filter((service) => !service.confirmed_by_user)
+            .filter((service) => service.confirmation_status === 'proposed')
             .map((service) => service.service_category),
         ),
       ],
@@ -606,6 +641,15 @@ export class SupabaseReferenceStore implements ReferenceStore {
     if (query.referenceStatus === 'open') {
       items = items.filter((item) => item.hasUnconfirmedServices);
     }
+    if (query.confirmationStatus === 'evidence') {
+      items = items.filter((item) => item.confirmedServiceCategories.length > 0);
+    }
+    if (query.confirmationStatus === 'proposed') {
+      items = items.filter((item) => item.hasOnlyProposals);
+    }
+    if (query.confirmationStatus === 'undecided') {
+      items = items.filter((item) => item.hasUnconfirmedServices);
+    }
 
     const total = count ?? items.length;
     return {
@@ -696,36 +740,153 @@ export class SupabaseReferenceStore implements ReferenceStore {
     return project;
   }
 
-  async setServiceConfirmation(
-    organizationId: string,
-    serviceId: string,
-    confirmed: boolean,
-  ): Promise<boolean> {
-    // The tenancy check runs through the parent project, mirroring the policy.
+  async applyServiceDecision(
+    input: ServiceDecisionInput,
+  ): Promise<ServiceDecisionResult | null> {
     const { data: serviceData } = await this.client
       .from('reference_project_services')
-      .select('id, reference_project_id')
-      .eq('id', serviceId)
+      .select('*')
+      .eq('id', input.serviceId)
       .maybeSingle();
 
-    const service = asRow<{ id: string; reference_project_id: string }>(serviceData);
-    if (service === null) return false;
+    const service = asRow<ServiceRow>(serviceData);
+    if (service === null) return null;
 
+    // Tenancy check through the parent project, mirroring the RLS policy. A
+    // service of another organisation is reported as "not found".
     const { data: projectData } = await this.client
       .from('reference_projects')
       .select('id')
       .eq('id', service.reference_project_id)
-      .eq('organization_id', organizationId)
+      .eq('organization_id', input.organizationId)
       .maybeSingle();
 
-    if (asRow<{ id: string }>(projectData) === null) return false;
+    if (asRow<{ id: string }>(projectData) === null) return null;
 
-    const { error } = await this.client
+    const before = {
+      serviceCategory: service.service_category,
+      confirmationStatus: service.confirmation_status,
+    };
+
+    const next = applyConfirmationAction(
+      {
+        serviceCategory: service.service_category,
+        confirmationStatus: service.confirmation_status,
+        confirmedByUser: service.confirmed_by_user,
+        confirmedAt: service.confirmed_at,
+        confirmedBy: service.confirmed_by,
+      },
+      input.action,
+      input.userId,
+      input.targetCategory,
+    );
+
+    const update: Record<string, unknown> = {
+      service_category: next.serviceCategory,
+      confirmation_status: next.confirmationStatus,
+      confirmed_by_user: next.confirmedByUser,
+      confirmed_at: next.confirmedAt,
+      confirmed_by: next.confirmedBy,
+    };
+    if (input.note !== undefined) update.notes = input.note;
+
+    const { data: updated, error } = await this.client
       .from('reference_project_services')
-      .update({ confirmed_by_user: confirmed })
-      .eq('id', serviceId);
+      .update(update)
+      .eq('id', input.serviceId)
+      .select('*, profiles ( full_name, email )')
+      .single();
 
-    return error === null;
+    if (error !== null) {
+      throw new Error(`Entscheidung konnte nicht gespeichert werden: ${error.message}`);
+    }
+
+    const row = asRow<ServiceRow>(updated);
+    if (row === null) return null;
+
+    return {
+      referenceProjectId: service.reference_project_id,
+      before,
+      after: toService(row),
+    };
+  }
+
+  async listServicesByIds(
+    organizationId: string,
+    serviceIds: readonly string[],
+  ): Promise<ReferenceProjectService[]> {
+    if (serviceIds.length === 0) return [];
+
+    // Join through the project so the organisation filter applies.
+    const { data, error } = await this.client
+      .from('reference_project_services')
+      .select('*, reference_projects!inner ( organization_id )')
+      .in('id', [...serviceIds])
+      .eq('reference_projects.organization_id', organizationId);
+
+    if (error !== null) return [];
+    return asRows<ServiceRow>(data).map(toService);
+  }
+
+  async recordAuditEntry(input: AuditEntryInput): Promise<void> {
+    // The database trigger writes its own entry; this call covers the cases
+    // the trigger cannot see, such as an attempt that changed nothing.
+    const { error } = await this.client.from('audit_log').insert({
+      organization_id: input.organizationId,
+      user_id: input.userId,
+      action: input.action,
+      resource_type: input.resourceType,
+      resource_id: input.resourceId,
+      metadata: input.metadata,
+    });
+
+    if (error !== null) {
+      throw new Error(`Audit-Eintrag konnte nicht geschrieben werden: ${error.message}`);
+    }
+  }
+
+  async listAuditEntries(
+    organizationId: string,
+    resourceType: string,
+    resourceIds: readonly string[],
+    limit: number,
+  ): Promise<AuditEntry[]> {
+    if (resourceIds.length === 0) return [];
+
+    const { data, error } = await this.client
+      .from('audit_log')
+      .select('*, profiles ( full_name, email )')
+      .eq('organization_id', organizationId)
+      .eq('resource_type', resourceType)
+      .in('resource_id', [...resourceIds])
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error !== null) return [];
+
+    interface AuditRow {
+      id: number | string;
+      organization_id: string | null;
+      user_id: string | null;
+      action: string;
+      resource_type: string | null;
+      resource_id: string | null;
+      metadata: Record<string, unknown> | null;
+      created_at: string;
+      profiles?: { full_name: string | null; email: string } | null;
+    }
+
+    return asRows<AuditRow>(data).map((row) => ({
+      id: String(row.id),
+      organizationId: row.organization_id,
+      userId: row.user_id,
+      userName: row.profiles?.full_name ?? row.profiles?.email ?? null,
+      action: row.action,
+      resourceType: row.resource_type,
+      resourceId: row.resource_id,
+      metadata: row.metadata ?? {},
+      createdAt: row.created_at,
+    }));
   }
 
   async listDuplicateCandidates(
@@ -865,7 +1026,9 @@ export class SupabaseReferenceStore implements ReferenceStore {
         .eq('is_active', true),
       this.client
         .from('reference_projects')
-        .select('city, reference_project_services ( service_category, confirmed_by_user )')
+        .select(
+          'city, reference_project_services ( service_category, confirmation_status )',
+        )
         .eq('organization_id', organizationId),
     ]);
 
@@ -873,7 +1036,7 @@ export class SupabaseReferenceStore implements ReferenceStore {
       city: string | null;
       reference_project_services?: Array<{
         service_category: ReferenceServiceCategory;
-        confirmed_by_user: boolean;
+        confirmation_status: ServiceConfirmationStatus;
       }> | null;
     }
 
@@ -891,7 +1054,8 @@ export class SupabaseReferenceStore implements ReferenceStore {
         .flatMap((project) => project.reference_project_services ?? [])
         .filter(
           (service) =>
-            service.confirmed_by_user && service.service_category !== 'unknown',
+            countsAsEvidence(service.confirmation_status) &&
+            service.service_category !== 'unknown',
         )
         .map((service) => service.service_category),
     );

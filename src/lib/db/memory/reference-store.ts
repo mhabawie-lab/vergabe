@@ -13,6 +13,8 @@
 import { randomUUID } from 'node:crypto';
 import type { PaginatedResult } from '../ports';
 import type {
+  AuditEntry,
+  AuditEntryInput,
   ClientDetail,
   CreateClientInput,
   CreateImportInput,
@@ -21,7 +23,13 @@ import type {
   ReferenceFacets,
   ReferenceMetrics,
   ReferenceStore,
+  ServiceDecisionInput,
+  ServiceDecisionResult,
 } from '../reference-ports';
+import {
+  applyConfirmationAction,
+  countsAsEvidence,
+} from '@/modules/references/confirmation';
 import type { DuplicateCandidateSource } from '@/modules/references/dedupe';
 import {
   looksLikeSameValue,
@@ -47,10 +55,19 @@ export interface ReferenceTables {
   services: ReferenceProjectService[];
   imports: ReferenceImport[];
   importRows: ReferenceImportRow[];
+  /** Mirrors the audit_log table; metadata only, never customer data. */
+  auditLog: AuditEntry[];
 }
 
 export function createEmptyReferenceTables(): ReferenceTables {
-  return { clients: [], projects: [], services: [], imports: [], importRows: [] };
+  return {
+    clients: [],
+    projects: [],
+    services: [],
+    imports: [],
+    importRows: [],
+    auditLog: [],
+  };
 }
 
 function paginate<T>(items: T[], page: number, pageSize: number): PaginatedResult<T> {
@@ -117,7 +134,25 @@ export class MemoryReferenceStore implements ReferenceStore {
       invoiceStatus: project.invoiceStatus,
       shiftSummaryRaw: project.shiftSummaryRaw,
       serviceCategories: services.map((service) => service.serviceCategory),
-      hasUnconfirmedServices: services.some((service) => !service.confirmedByUser),
+      hasUnconfirmedServices: services.some(
+        (service) => service.confirmationStatus === 'proposed',
+      ),
+      hasOnlyProposals:
+        services.length > 0 &&
+        !services.some((service) => countsAsEvidence(service.confirmationStatus)),
+      confirmedServiceCategories: [
+        ...new Set(
+          services
+            .filter((service) => countsAsEvidence(service.confirmationStatus))
+            .map((service) => service.serviceCategory),
+        ),
+      ],
+      openProposals: services
+        .filter((service) => service.confirmationStatus === 'proposed')
+        .map((service) => ({
+          serviceId: service.id,
+          serviceCategory: service.serviceCategory,
+        })),
       confidentialityLevel: project.confidentialityLevel,
     };
   }
@@ -141,7 +176,7 @@ export class MemoryReferenceStore implements ReferenceStore {
       const confirmed = [
         ...new Set(
           services
-            .filter((service) => service.confirmedByUser)
+            .filter((service) => countsAsEvidence(service.confirmationStatus))
             .map((service) => service.serviceCategory),
         ),
       ];
@@ -262,14 +297,14 @@ export class MemoryReferenceStore implements ReferenceStore {
       confirmedServiceCategories: [
         ...new Set(
           services
-            .filter((service) => service.confirmedByUser)
+            .filter((service) => countsAsEvidence(service.confirmationStatus))
             .map((service) => service.serviceCategory),
         ),
       ],
       proposedServiceCategories: [
         ...new Set(
           services
-            .filter((service) => !service.confirmedByUser)
+            .filter((service) => service.confirmationStatus === 'proposed')
             .map((service) => service.serviceCategory),
         ),
       ],
@@ -424,6 +459,19 @@ export class MemoryReferenceStore implements ReferenceStore {
         return false;
       }
 
+      if (
+        query.confirmationStatus === 'evidence' &&
+        item.confirmedServiceCategories.length === 0
+      ) {
+        return false;
+      }
+      if (query.confirmationStatus === 'proposed' && !item.hasOnlyProposals) {
+        return false;
+      }
+      if (query.confirmationStatus === 'undecided' && !item.hasUnconfirmedServices) {
+        return false;
+      }
+
       // A period filter matches when the project overlaps the window at all.
       if (query.periodFrom !== undefined) {
         const end = item.endDate ?? item.startDate;
@@ -533,7 +581,12 @@ export class MemoryReferenceStore implements ReferenceStore {
         serviceLabel: service.serviceLabel,
         classificationSource: service.classificationSource,
         classificationConfidence: service.classificationConfidence,
-        confirmedByUser: service.confirmedByUser,
+        // An imported classification always starts as an untouched proposal.
+        confirmedByUser: false,
+        confirmationStatus: 'proposed',
+        confirmedAt: null,
+        confirmedBy: null,
+        confirmedByName: null,
         notes: service.notes,
         createdAt: now,
         updatedAt: now,
@@ -543,25 +596,98 @@ export class MemoryReferenceStore implements ReferenceStore {
     return { ...project, services: this.servicesOf(id) };
   }
 
-  async setServiceConfirmation(
-    organizationId: string,
-    serviceId: string,
-    confirmed: boolean,
-  ): Promise<boolean> {
-    const service = this.tables.services.find((entry) => entry.id === serviceId);
-    if (service === undefined) return false;
+  async applyServiceDecision(
+    input: ServiceDecisionInput,
+  ): Promise<ServiceDecisionResult | null> {
+    const service = this.tables.services.find(
+      (entry) => entry.id === input.serviceId,
+    );
+    if (service === undefined) return null;
 
-    // Tenancy check through the parent project.
+    // Tenancy check through the parent project. A service of another
+    // organisation is reported as "not found" so a probe reveals nothing.
     const project = this.tables.projects.find(
       (entry) =>
         entry.id === service.referenceProjectId &&
-        entry.organizationId === organizationId,
+        entry.organizationId === input.organizationId,
     );
-    if (project === undefined) return false;
+    if (project === undefined) return null;
 
-    service.confirmedByUser = confirmed;
+    const before = {
+      serviceCategory: service.serviceCategory,
+      confirmationStatus: service.confirmationStatus,
+    };
+
+    const next = applyConfirmationAction(
+      {
+        serviceCategory: service.serviceCategory,
+        confirmationStatus: service.confirmationStatus,
+        confirmedByUser: service.confirmedByUser,
+        confirmedAt: service.confirmedAt,
+        confirmedBy: service.confirmedBy,
+      },
+      input.action,
+      input.userId,
+      input.targetCategory,
+    );
+
+    service.serviceCategory = next.serviceCategory;
+    service.confirmationStatus = next.confirmationStatus;
+    service.confirmedByUser = next.confirmedByUser;
+    service.confirmedAt = next.confirmedAt;
+    service.confirmedBy = next.confirmedBy;
     service.updatedAt = new Date().toISOString();
-    return true;
+    if (input.note !== undefined) service.notes = input.note;
+
+    return { referenceProjectId: project.id, before, after: { ...service } };
+  }
+
+  async listServicesByIds(
+    organizationId: string,
+    serviceIds: readonly string[],
+  ): Promise<ReferenceProjectService[]> {
+    const wanted = new Set(serviceIds);
+    const ownProjectIds = new Set(
+      this.projectsOf(organizationId).map((project) => project.id),
+    );
+
+    return this.tables.services.filter(
+      (service) =>
+        wanted.has(service.id) && ownProjectIds.has(service.referenceProjectId),
+    );
+  }
+
+  async recordAuditEntry(input: AuditEntryInput): Promise<void> {
+    this.tables.auditLog.push({
+      id: randomUUID(),
+      organizationId: input.organizationId,
+      userId: input.userId,
+      userName: null,
+      action: input.action,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      metadata: input.metadata,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async listAuditEntries(
+    organizationId: string,
+    resourceType: string,
+    resourceIds: readonly string[],
+    limit: number,
+  ): Promise<AuditEntry[]> {
+    const wanted = new Set(resourceIds);
+    return this.tables.auditLog
+      .filter(
+        (entry) =>
+          entry.organizationId === organizationId &&
+          entry.resourceType === resourceType &&
+          entry.resourceId !== null &&
+          wanted.has(entry.resourceId),
+      )
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, limit);
   }
 
   async listDuplicateCandidates(
@@ -657,7 +783,11 @@ export class MemoryReferenceStore implements ReferenceStore {
 
     const confirmedCategories = new Set<ReferenceServiceCategory>(
       services
-        .filter((service) => service.confirmedByUser && service.serviceCategory !== 'unknown')
+        .filter(
+          (service) =>
+            countsAsEvidence(service.confirmationStatus) &&
+            service.serviceCategory !== 'unknown',
+        )
         .map((service) => service.serviceCategory),
     );
 

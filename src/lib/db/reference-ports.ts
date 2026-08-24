@@ -10,6 +10,7 @@
 import type { PaginatedResult } from './ports';
 import type { ClientQuery, ReferenceQuery } from '@/modules/references/query';
 import type { DuplicateCandidateSource } from '@/modules/references/dedupe';
+import type { ConfirmationAction } from '@/modules/references/confirmation';
 import type {
   BusinessClient,
   BusinessClientListItem,
@@ -17,7 +18,9 @@ import type {
   ReferenceImportRow,
   ReferenceProject,
   ReferenceProjectListItem,
+  ReferenceProjectService,
   ReferenceServiceCategory,
+  ServiceConfirmationStatus,
 } from '@/types/reference';
 
 /** Headline figures for the dashboard tiles. */
@@ -87,6 +90,48 @@ export interface CreateProjectInput {
   }>;
 }
 
+export interface ServiceDecisionInput {
+  organizationId: string;
+  serviceId: string;
+  action: ConfirmationAction;
+  /** Required for `change_and_confirm`. */
+  targetCategory: ReferenceServiceCategory | null;
+  userId: string | null;
+  /** Optional internal note recorded with the decision. */
+  note?: string | null;
+}
+
+export interface ServiceDecisionResult {
+  referenceProjectId: string;
+  before: {
+    serviceCategory: ReferenceServiceCategory;
+    confirmationStatus: ServiceConfirmationStatus;
+  };
+  after: ReferenceProjectService;
+}
+
+export interface AuditEntryInput {
+  organizationId: string;
+  userId: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  /** Classification metadata only. Never customer data. */
+  metadata: Record<string, unknown>;
+}
+
+export interface AuditEntry {
+  id: string;
+  organizationId: string | null;
+  userId: string | null;
+  userName: string | null;
+  action: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface CreateImportInput {
   organizationId: string;
   fileName: string;
@@ -142,12 +187,35 @@ export interface ReferenceStore {
   ): Promise<PaginatedResult<ReferenceProjectListItem>>;
   findProjectById(organizationId: string, id: string): Promise<ReferenceProject | null>;
   createProject(input: CreateProjectInput): Promise<ReferenceProject>;
-  /** Confirms or rejects a proposed service classification. */
-  setServiceConfirmation(
+
+  /**
+   * Applies a confirmation decision to one service.
+   *
+   * Returns the state before and after, so the caller can write an audit entry
+   * that names what actually changed. Returns null when the service does not
+   * exist **or belongs to another organisation** — the two are deliberately
+   * indistinguishable to the caller, so a probe cannot reveal foreign ids.
+   */
+  applyServiceDecision(
+    input: ServiceDecisionInput,
+  ): Promise<ServiceDecisionResult | null>;
+
+  /** Reads services by id, scoped to the organisation. Used by bulk confirm. */
+  listServicesByIds(
     organizationId: string,
-    serviceId: string,
-    confirmed: boolean,
-  ): Promise<boolean>;
+    serviceIds: readonly string[],
+  ): Promise<ReferenceProjectService[]>;
+
+  /** Appends an audit entry. Metadata only — never customer data. */
+  recordAuditEntry(input: AuditEntryInput): Promise<void>;
+
+  /** Audit entries for one resource, newest first. */
+  listAuditEntries(
+    organizationId: string,
+    resourceType: string,
+    resourceIds: readonly string[],
+    limit: number,
+  ): Promise<AuditEntry[]>;
 
   /** Everything needed to compare an import row against the existing stock. */
   listDuplicateCandidates(organizationId: string): Promise<DuplicateCandidateSource[]>;

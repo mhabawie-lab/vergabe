@@ -4,17 +4,24 @@ import { LinkButton } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/form';
 import { Pagination } from '@/components/ui/pagination';
 import { EmptyState, PageHeader } from '@/components/ui/page';
-import { ReferenceTable } from '@/components/references/reference-table';
-import { requirePermission } from '@/lib/auth/session';
+import { BulkConfirmTable } from '@/components/references/bulk-confirm-table';
+import { hasPermission, requirePermission } from '@/lib/auth/session';
 import { getReferenceStore } from '@/lib/db';
 import { formatNumber } from '@/lib/utils/format';
 import {
+  CONFIRMATION_FILTER_LABELS,
   countActiveReferenceFilters,
   parseReferenceQuery,
   referenceQueryToParams,
   type RawSearchParams,
 } from '@/modules/references/query';
 import { CLASSIFICATION_PROPOSAL_NOTE } from '@/modules/references/classification';
+import {
+  SUGGESTION_NOTE,
+  buildSearchProfileSuggestions,
+} from '@/modules/references/search-profile-suggestions';
+import { Badge } from '@/components/ui/badge';
+import { CardBody, CardHeader } from '@/components/ui/card';
 import {
   REFERENCE_PROJECT_STATUS_LABELS,
   REFERENCE_PROJECT_STATUSES,
@@ -30,6 +37,7 @@ export default async function ReferencesPage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const session = await requirePermission('references:read');
+  const canEdit = hasPermission(session, 'references:write');
 
   const query = parseReferenceQuery(await searchParams);
   const activeFilters = countActiveReferenceFilters(query);
@@ -39,6 +47,22 @@ export default async function ReferencesPage({
     store.listProjects(session.organization.id, query),
     store.listFacets(session.organization.id),
   ]);
+
+  // Surfacing this up front matters: a list that looks full of references can
+  // still contain nothing that counts as evidence.
+  const onlyProposalCount = result.items.filter((item) => item.hasOnlyProposals).length;
+
+  // Suggestions are built exclusively from confirmed services — an unconfirmed
+  // proposal must never turn into a search profile.
+  const suggestions = buildSearchProfileSuggestions({
+    projects: result.items,
+    confirmedServices: result.items.flatMap((item) =>
+      item.confirmedServiceCategories.map((serviceCategory) => ({
+        projectId: item.id,
+        serviceCategory,
+      })),
+    ),
+  });
 
   const buildHref = (page: number): string => {
     const params = referenceQueryToParams({ ...query, page });
@@ -57,6 +81,20 @@ export default async function ReferencesPage({
           </LinkButton>
         }
       />
+
+      {onlyProposalCount > 0 && (
+        <div className="rounded-xl border border-warning/25 bg-warning-subtle px-4 py-3">
+          <p className="text-sm font-semibold text-warning">
+            {onlyProposalCount === 1
+              ? '1 Referenz auf dieser Seite hat ausschließlich unbestätigte Vorschläge'
+              : `${onlyProposalCount} Referenzen auf dieser Seite haben ausschließlich unbestätigte Vorschläge`}
+          </p>
+          <p className="mt-1 text-xs text-warning">
+            Solange keine Leistungsart bestätigt ist, zählen diese Projekte nicht
+            als Nachweis und fließen nicht in Suchprofil-Vorschläge ein.
+          </p>
+        </div>
+      )}
 
       <Card>
         <form
@@ -124,6 +162,18 @@ export default async function ReferencesPage({
               { value: 'open', label: 'Prüfung offen' },
             ]}
           />
+          <Select
+            name="confirmationStatus"
+            defaultValue={query.confirmationStatus ?? ''}
+            aria-label="Bestätigungsstatus"
+            placeholder="Alle Bestätigungsstatus"
+            options={(
+              ['evidence', 'proposed', 'undecided'] as const
+            ).map((value) => ({
+              value,
+              label: CONFIRMATION_FILTER_LABELS[value],
+            }))}
+          />
           <div className="grid grid-cols-2 gap-2">
             <Input
               name="periodFrom"
@@ -173,8 +223,9 @@ export default async function ReferencesPage({
             }
           />
         ) : (
-          <ReferenceTable
+          <BulkConfirmTable
             projects={result.items}
+            canEdit={canEdit}
             emptyMessage="Keine Referenzen entsprechen den gewählten Filtern."
           />
         )}
@@ -189,6 +240,42 @@ export default async function ReferencesPage({
           />
         )}
       </Card>
+
+      {suggestions.length > 0 && (
+        <Card>
+          <CardHeader
+            title="Suchprofil-Vorschläge"
+            description="Abgeleitet aus bestätigten Leistungsarten"
+          />
+          <CardBody className="space-y-3">
+            <ul className="space-y-2">
+              {suggestions.map((suggestion) => (
+                <li
+                  key={suggestion.key}
+                  className="rounded-lg border border-border-subtle p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-text-primary">
+                      {suggestion.title}
+                    </span>
+                    <Badge tone="info">Vorschlag</Badge>
+                    <Badge tone="neutral">
+                      {suggestion.evidenceCount}{' '}
+                      {suggestion.evidenceCount === 1 ? 'Referenz' : 'Referenzen'}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-text-secondary">
+                    {suggestion.rationale}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] leading-snug text-text-muted">
+              {SUGGESTION_NOTE}
+            </p>
+          </CardBody>
+        </Card>
+      )}
     </div>
   );
 }

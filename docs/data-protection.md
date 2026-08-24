@@ -84,6 +84,41 @@ Konkret gilt:
 - `Datacenter` ist eine **Objektart** und erzeugt nie einen Leistungsvorschlag.
 - `Bauhelfer` und `Sicherheitsdienst` werden nie automatisch zugewiesen.
 
+### Bestätigungszustände
+
+`confirmation_status` unterscheidet fünf Zustände. Der Unterschied zwischen
+einem unangetasteten und einem geprüften Vorschlag ist wichtig — beide haben
+`confirmed_by_user = false`, bedeuten aber Gegensätzliches.
+
+| Status | Bedeutung | Nachweis? |
+|---|---|---|
+| `proposed` | Automatisch erkannt, noch niemand hat geprüft | nein |
+| `confirmed` | Vorschlag unverändert bestätigt | **ja** |
+| `manual` | Kategorie von Hand festgelegt und bestätigt | **ja** |
+| `rejected` | Vorschlag als unzutreffend verworfen | nein |
+| `unknown` | Es wurde festgestellt, dass sich die Leistung nicht bestimmen lässt | nein |
+
+Eine unbestimmte Kategorie (`unknown`) lässt sich **nicht** bestätigen. Das
+wäre die Behauptung, man habe etwas festgestellt, was nicht festgestellt wurde;
+die ehrliche Aktion dafür heißt „Als unbekannt markieren".
+
+Jede Entscheidung hält fest, **wer** sie **wann** getroffen hat
+(`confirmed_by`, `confirmed_at`) und wird im `audit_log` mit altem und neuem
+Wert protokolliert.
+
+### Sammelbestätigung
+
+Ein Klick darf nur dann mehrere Referenzen zugleich betreffen, wenn die
+Auswahl eindeutig ist. Erlaubt ist sie nur, wenn
+
+- alle Einträge noch offene Vorschläge sind,
+- alle dieselbe Kategorie tragen,
+- keiner davon `unknown` ist,
+- die Anfrage ein ausdrückliches Bestätigungskennzeichen mitführt.
+
+Die Regel wird serverseitig erneut geprüft und die Auswahl vorher frisch aus
+der Datenbank gelesen, damit veralteter Client-Zustand nichts bestätigen kann.
+
 ---
 
 ## 4. Unvollständige Angaben werden nicht ergänzt

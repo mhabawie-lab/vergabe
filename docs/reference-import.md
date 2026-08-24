@@ -116,9 +116,25 @@ Alles andere bleibt **Nicht bestimmt** (`unknown`). Insbesondere erzeugt die
 Objektart `Datacenter` keinen Leistungsvorschlag — sie beschreibt den Standort,
 nicht die Leistung.
 
-Jeder Vorschlag ist unbestätigt und muss auf der Referenz-Detailseite bestätigt
-werden. Erst danach zählt er als Nachweis und fließt in Suchprofil-Vorschläge
-ein. Siehe `docs/data-protection.md`, Abschnitt 3.
+Jeder Vorschlag ist unbestätigt und muss auf der Referenz-Detailseite
+entschieden werden. Zur Verfügung stehen:
+
+- **Vorschlag bestätigen** — übernimmt die vorgeschlagene Kategorie
+- **Kategorie ändern und bestätigen** — legt eine andere Kategorie fest
+- **Als unbekannt markieren** — hält fest, dass sich die Leistung nicht
+  bestimmen lässt
+- **Vorschlag verwerfen** — der Vorschlag war unzutreffend
+- **Bestätigung zurücksetzen** — macht eine Entscheidung rückgängig
+
+Erst `bestätigt` oder `manuell festgelegt` zählt als Nachweis und fließt in
+Suchprofil-Vorschläge ein. Eine unbestimmte Kategorie lässt sich nicht
+bestätigen.
+
+In der Referenzübersicht können mehrere **gleichartige** offene Vorschläge
+gemeinsam bestätigt werden — nur bei identischer Kategorie, nie für
+unbestimmte Leistungsarten und nur nach ausdrücklicher Bestätigung.
+
+Siehe `docs/data-protection.md`, Abschnitt 3.
 
 ---
 

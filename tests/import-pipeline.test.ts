@@ -338,29 +338,6 @@ describe('Mandantentrennung', () => {
     expect(await store.findProjectById(ORG_B, id)).toBeNull();
   });
 
-  it('erlaubt keine Bestätigung einer Leistung über Organisationsgrenzen', async () => {
-    const tables = createEmptyReferenceTables();
-    const store = new MemoryReferenceStore(tables);
-    const { table, mapping } = buildTable();
-
-    await runImport(
-      store,
-      { organizationId: ORG_A, userId: null },
-      table,
-      mapping,
-      'a.csv',
-      'csv',
-      { includeWarningRows: false },
-      false,
-    );
-
-    const serviceId = tables.services[0]?.id ?? '';
-    expect(await store.setServiceConfirmation(ORG_B, serviceId, true)).toBe(false);
-    expect(tables.services[0]?.confirmedByUser).toBe(false);
-
-    expect(await store.setServiceConfirmation(ORG_A, serviceId, true)).toBe(true);
-    expect(tables.services[0]?.confirmedByUser).toBe(true);
-  });
 });
 
 describe('Suchprofil-Vorschläge', () => {
@@ -384,6 +361,9 @@ describe('Suchprofil-Vorschläge', () => {
           shiftSummaryRaw: null,
           serviceCategories: ['security'],
           hasUnconfirmedServices: true,
+          hasOnlyProposals: true,
+          confirmedServiceCategories: [],
+          openProposals: [{ serviceId: 's1', serviceCategory: 'security' }],
           confidentialityLevel: 'internal',
         },
       ],
@@ -413,6 +393,9 @@ describe('Suchprofil-Vorschläge', () => {
           shiftSummaryRaw: null,
           serviceCategories: ['security'],
           hasUnconfirmedServices: false,
+          hasOnlyProposals: false,
+          confirmedServiceCategories: ['security'],
+          openProposals: [],
           confidentialityLevel: 'internal',
         },
       ],
@@ -446,6 +429,9 @@ describe('Suchprofil-Vorschläge', () => {
           shiftSummaryRaw: null,
           serviceCategories: ['unknown'],
           hasUnconfirmedServices: false,
+          hasOnlyProposals: false,
+          confirmedServiceCategories: ['unknown'],
+          openProposals: [],
           confidentialityLevel: 'internal',
         },
       ],

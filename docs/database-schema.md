@@ -20,6 +20,7 @@ Row Level Security ist auf **allen** Tabellen aktiv.
 | `0006_register_demo_source.sql`    | DEMO-Quelle plus Schutz-Trigger                     |
 | `0007_business_clients.sql`        | **Phase 2** — eigene Kunden und Referenzprojekte    |
 | `0008_reference_rls_audit.sql`     | **Phase 2** — RLS und Audit für Referenzdaten       |
+| `0009_service_confirmation.sql`    | **Phase 2** — Bestätigungszustand der Leistungsarten |
 
 Anwenden mit `supabase db push`.
 
@@ -124,7 +125,14 @@ Leistungsart je Projekt, mit Herkunft der Einstufung.
 | `service_category` | Enum inkl. `unknown` als ehrlicher Standardwert |
 | `classification_source` | `name_rule`, `manual`, `import_column` oder `ai` |
 | `classification_confidence` | 0–1, nur zusammen mit der Herkunft aussagekräftig |
-| `confirmed_by_user` | **false = Vorschlag, kein Fakt** |
+| `confirmed_by_user` | **false = kein Nachweis**; true nur bei `confirmed`/`manual` |
+| `confirmation_status` | `proposed`, `confirmed`, `manual`, `rejected`, `unknown` |
+| `confirmed_at` | Zeitpunkt der Entscheidung |
+| `confirmed_by` | Wer entschieden hat |
+
+Zwei Check-Constraints halten die Felder konsistent: `confirmed_by_user` darf
+nur bei `confirmed`/`manual` wahr sein, und jede getroffene Entscheidung trägt
+einen Zeitstempel.
 
 Eindeutig: `(reference_project_id, service_category)`.
 
@@ -151,6 +159,7 @@ Protokoll jedes Importlaufs, einschließlich Testläufen (`status = dry_run`).
 | `enforce_demo_source_flag()` | Datensätze einer Demo-Quelle müssen `is_demo` tragen |
 | `reject_demo_reference_data()` | Referenzdaten dürfen nicht an einer Demo-Organisation hängen |
 | `log_reference_change()` | schreibt Änderungen an Referenzdaten ins `audit_log` — nur Metadaten |
+| `log_service_confirmation()` | protokolliert Bestätigungsentscheidungen mit altem und neuem Wert |
 
 ---
 
