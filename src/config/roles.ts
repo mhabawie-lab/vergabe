@@ -34,6 +34,11 @@ export const PERMISSIONS = [
   'search_profiles:write',
   'company:read',
   'company:write',
+  'clients:read',
+  'clients:write',
+  'references:read',
+  'references:write',
+  'references:import',
   'calculation:read',
   'calculation:write',
   'documents:read',
@@ -51,10 +56,17 @@ const VIEWER_PERMISSIONS: readonly Permission[] = [
   'company:read',
   'documents:read',
   'members:read',
+  // Customer and reference data is commercially sensitive, but a viewer of
+  // the organisation is already inside that trust boundary.
+  'clients:read',
+  'references:read',
 ];
 
 const BID_MANAGER_PERMISSIONS: readonly Permission[] = [
   ...VIEWER_PERMISSIONS,
+  'clients:write',
+  'references:write',
+  'references:import',
   'tenders:export',
   'favorites:write',
   'search_profiles:write',

@@ -1,10 +1,15 @@
 # SicherVergabe — Projektplan
 
-> Status: **Phase 1 abgeschlossen** (Stand: August 2026).
-> Das Fundament, das Kerndatenmodell, die vollständige Ingestion-Pipeline mit
-> DEMO-Quelle sowie Dashboard, Ausschreibungssuche und Detailansicht sind
-> implementiert. Der tatsächliche Umsetzungsstand ist in Kapitel 12
-> dokumentiert.
+> Status: **Phase 2 abgeschlossen** (Stand: August 2026).
+> Phase 1 lieferte Fundament, Kerndatenmodell, Ingestion-Pipeline mit
+> DEMO-Quelle sowie Dashboard, Ausschreibungssuche und Detailansicht.
+> Phase 2 ergänzt die mandantenfähige Verwaltung eigener Kunden, Baustellen
+> und Referenzprojekte samt Datenimport. Der tatsächliche Umsetzungsstand ist
+> in Kapitel 12 (Phase 1) und Kapitel 13 (Phase 2) dokumentiert.
+>
+> **Abweichend vom ursprünglichen Plan** behandelt Phase 2 nicht TED/eForms,
+> sondern die eigenen Kunden- und Referenzdaten. Die Anbindung erster
+> Live-Vergabequellen verschiebt sich entsprechend nach hinten.
 >
 > Dieses Dokument beschreibt Architektur, Datenmodell, Connector-Design,
 > Auth/Rollen, API-Struktur, Import-/Normalisierungsprozess,
@@ -704,3 +709,181 @@ Stand des letzten Durchlaufs:
 3. RPC-Funktion für die Volltext-Relevanzsortierung.
 4. Suchprofile, Favoriten und Benachrichtigungen als Schreibfunktionen.
 5. Scheduler für den regelmäßigen Import einrichten.
+
+---
+
+## 13. Umsetzungsstand Phase 2 — Kunden, Baustellen und Referenzen
+
+### 13.1 Fachliche Trennung
+
+Eigene Geschäftskunden und öffentliche Auftraggeber sind getrennte Domänen und
+werden nie in einer Tabelle zusammengeführt:
+
+| | `contracting_authorities` | `business_clients` |
+|---|---|---|
+| Wer | öffentliche Vergabestelle | eigener Geschäftskunde |
+| Herkunft | aus Vergabeverfahren importiert | vom Nutzerunternehmen gepflegt |
+| Sichtbarkeit | alle angemeldeten Nutzer | nur die eigene Organisation |
+| Mandant | keiner | `organization_id` |
+
+Analog: `awards` sind fremde Zuschläge, `reference_projects` eigene Projekte.
+
+### 13.2 Neue Tabellen
+
+Zwei Migrationen, fünf Tabellen, sieben Enums:
+
+- `0007_business_clients.sql` — `business_clients`, `reference_projects`,
+  `reference_project_services`, `reference_imports`, `reference_import_rows`
+- `0008_reference_rls_audit.sql` — RLS-Richtlinien, Audit-Trigger,
+  Demo-Schutz-Trigger
+
+Alle Tabellen mit Foreign Keys, Unique Constraints, Indizes, Zeitstempeln,
+Row Level Security und Mandantentrennung über `organization_id`.
+
+Besonderheiten:
+
+- `reference_projects.shift_summary_raw` hält den Originalwert (z. B.
+  `218/146/0`); `shift_values` nur die technische Zerlegung. **Die Bedeutung
+  der Zahlen ist nicht festgelegt** — weder Schema noch Code vergeben
+  Bezeichnungen dafür.
+- `reference_import_rows` speichert `raw_data` unverändert und
+  `normalized_data` getrennt daneben.
+- `reference_project_services.confirmed_by_user` trennt Vorschlag von Fakt.
+- `reject_demo_reference_data()` verhindert Referenzdaten an einer
+  Demo-Organisation.
+- `log_reference_change()` schreibt jede Änderung ins `audit_log` — nur
+  Metadaten, nie den Dateninhalt.
+
+### 13.3 Importfunktion
+
+`/imports/references`, zehnstufiger Ablauf: Datei → Spalten erkennen →
+Zuordnung prüfen → Vorschau → Validierung → Hinweise → Dublettenprüfung →
+Testlauf → ausdrückliche Bestätigung → Ergebnis.
+
+Unterstützt: **CSV**, **XLSX**, **manuelle Einzelerfassung**.
+PDF-Tabellenimport und OCR sind bewusst nicht enthalten.
+
+Testlauf und echter Import laufen durch denselben Code — ein Testlauf zeigt
+daher genau das, was der echte Import täte. Zeilen mit Fehlern werden nie
+importiert, Zeilen mit Warnungen nur auf ausdrücklichen Wunsch.
+
+Erkannte deutsche Spalten: Objekt-Nr., Objektname, Objektart, Ort, Kunde,
+Schichten, Rechnung? — zusätzlich Region, Land, PLZ, Beginn, Ende,
+Beschreibung. Abweichende Überschriften lassen sich manuell zuordnen.
+
+### 13.4 Validierung
+
+Erkannt werden: fehlender Kunde, fehlender Objektname, fehlender Ort,
+ungültige Objekt-Nr., bereits vergebene Objekt-Nr. (in Datei und Datenbank),
+abweichend geschriebene Kundennamen, abweichend geschriebene Orte, ungültiges
+Schichtformat, unbekannter Rechnungsstatus, unlesbare Datumsangaben,
+Projektende vor Projektbeginn und inhaltliche Dubletten.
+
+Durchgängig gilt: Rohdaten werden nie überschrieben, Schreibfehler nur als
+Vorschlag angezeigt, keine automatische Korrektur, unvollständige Ortsangaben
+werden nicht ergänzt.
+
+### 13.5 Vorsichtige Leistungserkennung
+
+Ein Vorschlag entsteht nur bei einem eindeutigen Begriff im Objektnamen:
+`Paramedic` → `paramedic`, `Security` → `security`, `Clean` → `cleaning`,
+`Lager` → `warehouse`. Alles andere bleibt `unknown`.
+
+`Datacenter` ist Objektart und erzeugt keinen Leistungsvorschlag.
+`Bauhelfer` und `Sicherheitsdienst` werden nie automatisch zugewiesen.
+
+Jeder Vorschlag trägt `classification_source = name_rule`, die ausgelöste
+Regel-ID, einen Konfidenzwert und `confirmed_by_user = false`.
+
+### 13.6 Neue Seiten und Routen
+
+| Route | Stand |
+|---|---|
+| `/customers` | Kundenübersicht mit Suche, Status-, Orts- und Leistungsfilter, Sortierung, Paginierung, Dublettenhinweis |
+| `/customers/[id]` | Stammdaten, Kennzahlen, Standorte, Leistungsarten, Referenzprojekte, Notizen |
+| `/references` | Referenzübersicht mit acht Filtern und Volltextsuche |
+| `/references/[id]` | Projektübersicht, Standort, Leistungsarten, Zeitraum, Original-Importwerte, Warnungen |
+| `/imports/references` | Importdialog, manuelle Erfassung, Importprotokoll |
+| `/api/v1/references/import/parse` | Datei lesen, Spalten vorschlagen, validieren — schreibt nichts |
+| `/api/v1/references/import/run` | Testlauf oder bestätigter Import |
+| `/api/v1/references/import/template` | Anonymisierte CSV-Vorlage |
+| `/api/v1/references/manual` | Einzelnes Referenzprojekt anlegen |
+
+Sidebar-Gruppe „Eigene Daten" mit Kunden, Referenzen und Datenimport.
+Dashboard um vier Kennzahlen ergänzt (aktive Kunden, Referenzobjekte,
+abgedeckte Standorte, bestätigte Leistungsarten) — nur sichtbar, sobald
+Referenzdaten vorliegen, damit das bestehende Dashboard nicht überladen wird.
+
+### 13.7 Vorbereitung Match-Engine
+
+`buildSearchProfileSuggestions()` erzeugt Suchprofil-Vorschläge aus
+**ausschließlich bestätigten** Leistungsarten, angereichert um Regionen,
+Städte und die Zahl belegender Referenzen. Jeder Vorschlag trägt
+`isProposal: true` und wird nicht als aktives Suchprofil gespeichert.
+
+Eine Kategorie ohne eindeutige Entsprechung in der Branchentaxonomie erzeugt
+keinen Vorschlag. Die eigentliche Match-Engine ist nicht Teil dieser Phase.
+
+### 13.8 Automatisierte Tests
+
+Erstmals im Projekt: **vitest**, 78 Tests in 5 Dateien.
+
+| Datei | Umfang |
+|---|---|
+| `tests/csv-parsing.test.ts` | Trennzeichenerkennung, Anführungszeichen, BOM, CRLF, kurze Zeilen |
+| `tests/xlsx-parsing.test.ts` | Echte Arbeitsmappen, Datums- und Zahlenzellen, leere Zellen |
+| `tests/validation.test.ts` | Schichtformat, Spaltenzuordnung, alle Validierungsregeln |
+| `tests/classification.test.ts` | Vorsichtige Leistungserkennung, keine Klassifikation unbekannter Namen |
+| `tests/import-pipeline.test.ts` | Dublettenerkennung, Testlauf ohne Speichern, bestätigter Import, Mandantentrennung, Suchprofil-Vorschläge |
+
+### 13.9 Supabase
+
+Es liegen **keine Supabase-Zugangsdaten** vor. Es wurden keine erfunden.
+
+Die Migrationen sind vollständig, die Anwendung läuft gegen den lokalen
+Adapter. Für den Betrieb mit Supabase fehlen:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+DATABASE_URL=
+```
+
+Danach: `supabase db push`. Zusätzliche Variablen benötigt Phase 2 nicht.
+
+Der lokale Adapter ist flüchtig. Die Oberfläche weist auf `/customers` und im
+Importdialog ausdrücklich darauf hin, dass dort keine echten Kundendaten
+erfasst werden sollen.
+
+### 13.10 Bekannte offene Punkte
+
+1. **Leistungsbestätigung noch ohne Oberfläche.** Der Speicher-Port
+   (`setServiceConfirmation`) und die Mandantenprüfung stehen und sind
+   getestet; die Schaltfläche auf der Referenz-Detailseite fehlt noch. Bis
+   dahin bleiben importierte Leistungsarten Vorschläge — Suchprofil-Vorschläge
+   entstehen daher in der Praxis erst nach diesem Schritt.
+2. **Kunden anlegen und bearbeiten nur über den Import.** `createClient` und
+   `updateClient` sind implementiert, ein eigenes Formular auf `/customers`
+   fehlt.
+3. **Leistungsfilter im Supabase-Adapter wirken nur auf der geladenen Seite.**
+   PostgREST kann „enthält eine dieser Kategorien" nicht zusammen mit den
+   übrigen Filtern ausdrücken; sauber löst das eine RPC-Funktion. Der
+   In-Memory-Adapter filtert bereits vollständig.
+4. **Kundenliste lädt alle Projekte der Organisation** für die Aggregate. Ab
+   einigen Tausend Projekten braucht es eine materialisierte Sicht.
+5. **RLS ist nicht gegen eine echte Datenbank getestet.** Die
+   Mandantentrennung ist im lokalen Adapter getestet; die Richtlinien selbst
+   lassen sich erst mit Supabase-Zugang prüfen.
+6. **PDF-Import und OCR fehlen** — bewusst außerhalb dieser Phase.
+7. **Referenznachweise als Dokumente** folgen mit der Dokumentenverarbeitung.
+
+### 13.11 Nächste sinnvolle Schritte
+
+1. Supabase-Projekt anlegen, Migrationen anwenden, RLS gegen die echte
+   Datenbank prüfen.
+2. Bestätigen von Leistungsarten in der Oberfläche ergänzen — es ist der
+   Schlüssel, damit Referenzen als Nachweis zählen.
+3. Kundenformular für Anlage und Bearbeitung.
+4. Bedeutung der Schichtzahlen klären und erst danach benennen.
+5. Erst dann TED/eForms als erste Live-Quelle.

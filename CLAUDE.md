@@ -140,7 +140,42 @@ SOURCE → CONNECTOR → RAW IMPORT → NORMALIZER → DATABASE
 - Match Score und GO/PRÜFEN/NO-GO müssen immer eine nachvollziehbare
   Begründung mitliefern.
 
-## 10. Arbeitsweise
+## 10. Eigene Kunden- und Referenzdaten
+
+Diese Regeln gelten dauerhaft, nicht nur für Phase 2.
+
+- **Eigene Geschäftskunden und öffentliche Auftraggeber sind getrennte
+  Domänen.** `contracting_authorities` stammen aus Vergabeverfahren und sind
+  geteilte Referenzdaten; `business_clients` sind vertrauliche Geschäftsdaten
+  einer Organisation. Sie werden niemals in einer Tabelle zusammengeführt.
+  Analog: `awards` sind fremde Zuschläge, `reference_projects` eigene Projekte.
+- **Alle privaten Geschäftsdaten tragen `organization_id`** und sind
+  ausschließlich für Mitglieder dieser Organisation lesbar — anders als
+  Ausschreibungsdaten, die jede angemeldete Person lesen darf.
+- **Echte Kundendaten gehören niemals ins Repository** — nicht als Seed, nicht
+  als Testdatei, nicht im Quellcode, nicht in Commit-Nachrichten. Nur
+  anonymisierte Vorlagen mit erkennbar erfundenen Werten sind zulässig.
+  Echte Daten gelangen ausschließlich über die geschützte Importfunktion in
+  die Datenbank.
+- **Rohdaten und normalisierte Daten bleiben getrennt.** Importierte
+  Originalwerte (`raw_data`, `shift_summary_raw`) werden nie überschrieben;
+  bereinigte Werte stehen daneben, nicht darüber.
+- **Vermutete Schreibfehler sind Vorschläge, keine Korrekturen.** Es wird
+  nichts ohne Benutzerbestätigung geändert, und unvollständige Angaben
+  (Ort, Region, Land) werden nicht automatisch ergänzt.
+- **Automatisch erkannte Leistungsarten sind Vorschläge.** Sie tragen
+  `classification_source`, einen Konfidenzwert und `confirmed_by_user = false`.
+  Ein unbestätigter Vorschlag zählt nicht als Nachweis und fließt weder in
+  Suchprofil-Vorschläge noch in die Match-Engine ein.
+- **Im Zweifel `unknown`.** Eine erfundene Leistungsart ist schädlicher als
+  eine fehlende: Sie führt zu einer Bewerbung, deren Eignung sich nicht
+  belegen lässt. Objektarten (z. B. `Datacenter`) sind keine Leistungsarten.
+- **Änderungen an Kunden- und Referenzdaten werden im `audit_log`
+  protokolliert** — mit Metadaten, nie mit dem Dateninhalt selbst.
+
+Details: `docs/data-protection.md`.
+
+## 11. Arbeitsweise
 
 - Vor größeren Änderungen: `PROJECT_PLAN.md` prüfen und bei Bedarf
   aktualisieren.

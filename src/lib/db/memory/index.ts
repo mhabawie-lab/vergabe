@@ -20,13 +20,20 @@ import { logger } from '@/lib/logging';
 import { toErrorMessage } from '@/lib/errors';
 import { ingestAllActiveSources } from '@/modules/ingestion/pipeline';
 import { MemoryIngestionStore } from './ingestion-store';
+import {
+  createEmptyReferenceTables,
+  MemoryReferenceStore,
+  type ReferenceTables,
+} from './reference-store';
 import { MemoryTenderRepository } from './tender-repository';
 import { createDemoSource, createEmptyTables, type MemoryTables } from './tables';
 
 interface MemoryStoreRegistry {
   tables: MemoryTables;
+  referenceTables: ReferenceTables;
   ingestionStore: MemoryIngestionStore;
   tenderRepository: MemoryTenderRepository;
+  referenceStore: MemoryReferenceStore;
   /** Memoised so concurrent first requests trigger exactly one pipeline run. */
   bootstrap: Promise<void> | null;
 }
@@ -41,10 +48,16 @@ function createRegistry(): MemoryStoreRegistry {
   const tables = createEmptyTables();
   tables.sources.push(createDemoSource());
 
+  // Reference data starts empty on purpose: it holds real customer records,
+  // so there is no demo seed for it (phase-2 rule on data protection).
+  const referenceTables = createEmptyReferenceTables();
+
   return {
     tables,
+    referenceTables,
     ingestionStore: new MemoryIngestionStore(tables),
     tenderRepository: new MemoryTenderRepository(tables),
+    referenceStore: new MemoryReferenceStore(referenceTables),
     bootstrap: null,
   };
 }
@@ -94,4 +107,8 @@ export function getMemoryIngestionStore(): MemoryIngestionStore {
 
 export function getMemoryTenderRepository(): MemoryTenderRepository {
   return getRegistry().tenderRepository;
+}
+
+export function getMemoryReferenceStore(): MemoryReferenceStore {
+  return getRegistry().referenceStore;
 }
