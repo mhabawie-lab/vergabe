@@ -11,6 +11,10 @@
 > sondern die eigenen Kunden- und Referenzdaten. Die Anbindung erster
 > Live-Vergabequellen verschiebt sich entsprechend nach hinten.
 >
+> Kapitel 14 beschreibt das geplante **Subunternehmer-Radar** — ein rein
+> internes, mandantenprivates Werkzeug. Ausdrücklich **keine** öffentliche
+> Partnerbörse und kein Marktplatz; noch nicht implementiert.
+>
 > Dieses Dokument beschreibt Architektur, Datenmodell, Connector-Design,
 > Auth/Rollen, API-Struktur, Import-/Normalisierungsprozess,
 > Dokumentenverarbeitung/KI-Integration und die Entwicklungsphasen.
@@ -517,6 +521,10 @@ Auth-Grundgerüst, Migrationssystem, CI-Grundgerüst, Basis-Layout.
 > Jede Phase liefert ein lauffähiges, testbares Increment. Kein Phasenwechsel
 > ohne Migrationen, Tests und Dokumentationsupdate.
 
+Zusätzlich geplant, Phase noch nicht festgelegt: das **Subunternehmer-Radar**
+(Kapitel 14) — ein internes, mandantenprivates Werkzeug zur Erfassung und
+Prüfung möglicher Nachunternehmer. Keine öffentliche Partnerbörse.
+
 ---
 
 ## 12. Umsetzungsstand
@@ -982,3 +990,158 @@ Entscheidungen, serverseitige Filterung im Supabase-Adapter.
 2. Bedeutung der Schichtzahlen klären und erst danach benennen.
 3. Aggregation der Kundenliste in die Datenbank verlagern.
 4. Erst dann TED/eForms als erste Live-Quelle.
+
+---
+
+## 14. Subunternehmer-Radar (geplant, noch nicht implementiert)
+
+> **Status: Planung.** Es existiert kein Code, kein Schema und keine Route für
+> diesen Bereich. Dieses Kapitel legt die Ausrichtung fest, bevor gebaut wird.
+
+### 14.1 Abgrenzung — was der Bereich ausdrücklich nicht ist
+
+Das Subunternehmer-Radar ist ein **privates internes Werkzeug einer einzigen
+Organisation**. Es ist **keine Partnerbörse und kein Marktplatz**.
+
+Fremde Unternehmen sind in diesem Bereich Datensätze, keine Beteiligten. Sie
+
+- legen **kein Benutzerkonto** an,
+- pflegen **kein öffentliches Partnerprofil**,
+- veröffentlichen **keine Gesuche**,
+- senden **keine Bewerbungen** über die Plattform,
+- sehen **keine internen Daten** — auch nicht die über sie selbst.
+
+Es gibt folglich keine Registrierung für Dritte, keine öffentlich lesbare
+Ansicht, keinen Posteingang und keinen Abgleich zwischen zwei Organisationen.
+Jede spätere Anforderung, die eines dieser fünf Dinge einführen würde, ist eine
+Richtungsänderung und keine Erweiterung — sie gehört zuerst hierher, nicht in
+einen Pull Request.
+
+Nicht zu verwechseln mit dem **Auftraggeber-Radar** (Kapitel 11, Phase 5): Das
+betrachtet öffentliche Vergabestellen aus Vergabeverfahren und ist geteilte
+Referenzdatenbasis. Das Subunternehmer-Radar betrachtet mögliche Auftragnehmer
+der eigenen Organisation und ist vertraulich.
+
+### 14.2 Zweck
+
+- potenzielle Subunternehmer und Nachunternehmer intern erfassen
+- Unternehmen finden, die Aufträge oder Kooperationen suchen
+- Kontakte, Leistungen, Regionen und Verfügbarkeit verwalten
+- Referenzen, Zertifikate, Versicherungen und Qualifikationen prüfen
+- Partner internen Projekten und Baustellen zuordnen
+- Kommunikation und Aktivitäten dokumentieren
+- bevorzugte, zu prüfende und gesperrte Partner unterscheiden
+- Ablaufdaten von Nachweisen überwachen
+- die Nachunternehmerkette nachvollziehbar dokumentieren
+
+### 14.3 Einordnung in die bestehenden Domänen
+
+Das Schema kennt damit drei Arten von Gegenparteien, die nie zusammengeführt
+werden:
+
+| | `contracting_authorities` | `business_clients` | `subcontractors` |
+|---|---|---|---|
+| Wer | öffentliche Vergabestelle | eigener Geschäftskunde | möglicher Nachunternehmer |
+| Richtung | vergibt an uns | wir leisten für ihn | leistet für uns |
+| Herkunft | aus Vergabeverfahren importiert | selbst gepflegt | selbst gepflegt |
+| Sichtbarkeit | alle angemeldeten Nutzer | eigene Organisation | eigene Organisation |
+| Mandant | keiner | `organization_id` | `organization_id` |
+
+Dieselbe Firma kann in mehreren Rollen auftreten — als Kunde und als
+Nachunternehmer. Das sind zwei Datensätze mit unterschiedlicher Rechtsnatur
+und unterschiedlicher Vertraulichkeit, keine zwei Sichten auf einen Datensatz.
+
+### 14.4 Mandantenprivatheit
+
+Der gesamte Bereich ist mandantenprivat. Es gilt dieselbe doppelte Absicherung
+wie für Kunden- und Referenzdaten (`docs/data-protection.md`, Abschnitt 5):
+
+1. Jede Tabelle trägt `organization_id`, Row Level Security lässt nur
+   Mitglieder der Organisation lesen (`is_org_member`) und nur `org_admin`
+   sowie `bid_manager` schreiben (`has_org_role`).
+2. Jede Route prüft die Berechtigung zusätzlich serverseitig.
+
+Vorgesehene Berechtigungen: `subcontractors:read` und `subcontractors:write`.
+Sie sind eigenständig — Lesezugriff auf Kunden bedeutet nicht Lesezugriff auf
+Nachunternehmer, weil Preise und Bewertungen eine andere Vertraulichkeit haben.
+
+Ein Datensatz einer fremden Organisation wird wie überall als **„nicht
+gefunden"** beantwortet, nicht als „keine Berechtigung" — sonst ließe sich die
+Existenz fremder Einträge abfragen.
+
+### 14.5 Öffentliche Daten als Quellenhinweis
+
+Öffentlich verfügbare Unternehmensdaten (etwa ein Unternehmen, das in einem
+Vergabeverfahren als Bieter oder Zuschlagsempfänger auftaucht) dürfen mit einem
+privaten Subunternehmer-Datensatz **verknüpft** werden — als Herkunftsangabe,
+nicht als Inhalt.
+
+- Die Verknüpfung ist eine Referenz (`source_id`, `external_id`, optional
+  `award_id`), keine Kopie und keine Verschmelzung.
+- Öffentliche Felder bleiben in ihrer öffentlichen Tabelle und werden dort
+  gelesen. Sie werden nicht in den privaten Datensatz hineingeschrieben.
+- **Eigene Notizen, Bewertungen, Preise, Konditionen, Kontaktpersonen und
+  Dokumente sind strikt privat** und verlassen die Organisation nie — auch
+  nicht in aggregierter oder anonymisierter Form.
+- Umgekehrt fließt aus einem privaten Datensatz nichts in die öffentlichen
+  Referenzdaten zurück.
+
+### 14.6 Skizze des Datenmodells
+
+Noch nicht festgelegt, aber in dieser Richtung:
+
+| Tabelle | Inhalt |
+|---|---|
+| `subcontractors` | Stammdaten, Vergleichsform des Namens, Status (`preferred`, `review`, `blocked`, `unknown`), interne Notizen |
+| `subcontractor_contacts` | Ansprechpartner mit Rolle und Erreichbarkeit |
+| `subcontractor_services` | angebotene Leistungsarten — dieselbe Enum wie bei den Referenzen, mit derselben Zurückhaltung: unbestätigt ist ein Vorschlag |
+| `subcontractor_regions` | abgedeckte Regionen und Orte |
+| `subcontractor_availability` | Verfügbarkeit und Kapazität, mit Gültigkeitszeitraum |
+| `subcontractor_credentials` | Zertifikate, Versicherungen, Qualifikationen — je mit Ausstellung, **Ablaufdatum** und Prüfvermerk |
+| `subcontractor_documents` | hinterlegte Nachweise (Storage-Verweis, nie im Repository) |
+| `subcontractor_activities` | Kommunikation und Vorgänge, chronologisch |
+| `subcontractor_assignments` | Zuordnung zu eigenen Projekten und Baustellen |
+| `subcontractor_chain_links` | Nachunternehmerkette: wer beauftragt wen, je Projekt |
+| `subcontractor_public_links` | Verknüpfung mit öffentlichen Quelldaten (Abschnitt 14.5) |
+
+Es gelten die bestehenden Regeln: additive Migrationen, `created_at` /
+`updated_at`, RLS auf jeder Tabelle, Indizes zusammen mit den Tabellen,
+Änderungen im `audit_log` — mit Metadaten, nie mit dem Dateninhalt.
+
+### 14.7 Nachweise und Ablaufdaten
+
+Ein abgelaufener Nachweis ist der eigentliche fachliche Zweck der Überwachung.
+Deshalb:
+
+- Jeder Nachweis trägt ein Ablaufdatum oder ausdrücklich **kein** Ablaufdatum;
+  ein unbekanntes Datum wird nicht geraten und nicht aus dem Ausstellungsdatum
+  hochgerechnet.
+- Ohne geprüften, gültigen Nachweis gilt eine Qualifikation als **nicht
+  belegt** — dieselbe Regel wie bei den eigenen Referenzen: Ein zu Unrecht
+  angenommener Nachweis ist schädlicher als ein fehlender, weil er zu einer
+  Beauftragung führt, deren Eignung sich nicht belegen lässt.
+- Ein gesperrter Partner (`blocked`) wird nicht ausgeblendet, sondern sichtbar
+  als gesperrt geführt, mit Grund und Zeitpunkt. Stillschweigend verschwundene
+  Datensätze sind für eine Nachunternehmerkette wertlos.
+
+### 14.8 Bewusst nicht Teil dieses Bereichs
+
+- Selbstregistrierung, Einladungen oder Konten für fremde Unternehmen
+- öffentliche Profile, Suchmaschinen-Sichtbarkeit, Freigabelinks
+- Ausschreiben von Gesuchen, Angebotseinholung oder Bewerbungsverwaltung
+  über die Plattform
+- automatische Anreicherung aus externen Firmendatenbanken ohne Quellenangabe
+  und ohne menschliche Bestätigung
+- Bewertungen, die andere Organisationen sehen können
+- automatisches Zusammenführen ähnlich benannter Firmen
+
+### 14.9 Offene Punkte vor der Umsetzung
+
+1. Phase und Reihenfolge gegenüber den übrigen offenen Themen (Live-Quellen,
+   Dokumentenverarbeitung) sind noch nicht entschieden.
+2. Ob Nachweisdokumente in Supabase Storage liegen und wie lange sie
+   aufbewahrt werden, ist offen — inklusive Löschfristen.
+3. Ob und wie Ablaufwarnungen zugestellt werden (Ansicht, E-Mail, beides),
+   ist offen.
+4. Die Tiefe der Nachunternehmerkette (nur direkte Nachunternehmer oder
+   mehrstufig) ist fachlich zu klären.
