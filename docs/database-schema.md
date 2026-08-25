@@ -21,8 +21,10 @@ Row Level Security ist auf **allen** Tabellen aktiv.
 | `0007_business_clients.sql`        | **Phase 2** — eigene Kunden und Referenzprojekte    |
 | `0008_reference_rls_audit.sql`     | **Phase 2** — RLS und Audit für Referenzdaten       |
 | `0009_service_confirmation.sql`    | **Phase 2** — Bestätigungszustand der Leistungsarten |
+| `0010_reference_search_rpc.sql`    | **Phase 2** — serverseitige Referenzsuche als Funktion |
 
-Anwenden mit `supabase db push`.
+Anwenden mit `supabase db push`; ohne Zugangsdaten siehe
+`docs/supabase-setup.md`.
 
 ---
 
@@ -160,6 +162,7 @@ Protokoll jedes Importlaufs, einschließlich Testläufen (`status = dry_run`).
 | `reject_demo_reference_data()` | Referenzdaten dürfen nicht an einer Demo-Organisation hängen |
 | `log_reference_change()` | schreibt Änderungen an Referenzdaten ins `audit_log` — nur Metadaten |
 | `log_service_confirmation()` | protokolliert Bestätigungsentscheidungen mit altem und neuem Wert |
+| `search_reference_projects()` | gefilterte Referenzsuche, `security invoker` — RLS gilt unverändert |
 
 ---
 
@@ -175,3 +178,34 @@ Umstellung auf Range-Partitionierung nach `publication_date` ist in
 Referenzdaten sind pro Organisation deutlich kleiner (Größenordnung Tausende).
 Die Indizes sind entsprechend auf Filter und Sortierung ausgelegt, nicht auf
 Partitionierung.
+
+---
+
+## Referenzsuche (`0010`)
+
+Die Filter der Referenzübersicht liegen zum Teil in der Kindtabelle
+`reference_project_services` — „hat eine bestätigte Leistung dieser Art",
+„trägt ausschließlich offene Vorschläge". Über die Tabellen-API lässt sich das
+nicht zusammen mit Seitenzählung ausdrücken; wird nachträglich auf der bereits
+geladenen Seite gefiltert, stimmen weder Gesamtzahl noch Seitengrenzen. Deshalb
+filtert `public.search_reference_projects` in der Datenbank und liefert die
+Treffer-IDs plus die Gesamtzahl vor der Seitenaufteilung.
+
+| Eigenschaft | Umsetzung |
+|---|---|
+| Rechte | `security invoker` — RLS der aufrufenden Person gilt unverändert |
+| Mandant | zusätzlich `is_org_member()`; eine fremde Organisation liefert leer |
+| Sortierung | Whitelist (`project_name`, `client`, `start_date`), kein dynamisches SQL |
+| Suchtext | Parameter, auf die Vergleichsform reduziert — `%` ist kein Platzhalter |
+| Stabilität | Sortierung mit eindeutigem Nachschlüssel, damit Seiten nicht springen |
+
+Zwei Hilfsfunktionen bilden die Vergleichsformen der Anwendung nach:
+`reference_compare_form()` entspricht `normalizeForComparison`,
+`reference_city_compare_form()` entspricht `normalizeCityName`. Ohne sie würden
+Datenbank und Entwicklungsspeicher dieselbe Suche unterschiedlich beantworten.
+Beide sind `stable` (wegen `unaccent`) und tragen deshalb keinen Index.
+
+Zusätzliche Indizes: `reference_project_services (reference_project_id,
+service_category)` und `(reference_project_id, confirmation_status)`.
+
+Prüfskript: `supabase/tests/reference-search.sql`.

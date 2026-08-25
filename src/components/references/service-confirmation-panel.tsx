@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils/cn';
 import { formatDateTime } from '@/lib/utils/format';
 import {
   CONFIRMATION_ACTION_LABELS,
+  SERVICE_NOTE_MAX_LENGTH,
   type ConfirmationAction,
 } from '@/modules/references/confirmation';
 import {
@@ -58,6 +59,17 @@ export function ServiceConfirmationPanel({
   const [changingId, setChangingId] = useState<string | null>(null);
   const [targetCategory, setTargetCategory] =
     useState<ReferenceServiceCategory>('security');
+  /**
+   * Note drafts per service, seeded from the stored note. Every action sends
+   * the current draft, so deciding again never silently drops a note somebody
+   * wrote earlier.
+   */
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(services.map((service) => [service.id, service.notes ?? ''])),
+  );
+
+  const noteOf = (service: ReferenceProjectService): string =>
+    noteDrafts[service.id] ?? service.notes ?? '';
 
   async function decide(
     serviceId: string,
@@ -67,11 +79,17 @@ export function ServiceConfirmationPanel({
     setError(null);
     setPendingId(serviceId);
 
+    const draft = (noteDrafts[serviceId] ?? '').trim();
+
     try {
       const response = await fetch(`/api/v1/references/services/${serviceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, targetCategory: category }),
+        body: JSON.stringify({
+          action,
+          targetCategory: category,
+          note: draft.length > 0 ? draft : null,
+        }),
       });
 
       const data: unknown = await response.json();
@@ -185,7 +203,8 @@ export function ServiceConfirmationPanel({
               </dl>
 
               {service.notes !== null && (
-                <p className="mt-2 text-[11px] leading-snug text-text-muted">
+                <p className="mt-2 rounded-md bg-surface-sunken px-2.5 py-1.5 text-[11px] leading-snug text-text-secondary">
+                  <span className="font-medium text-text-muted">Notiz: </span>
                   {service.notes}
                 </p>
               )}
@@ -193,6 +212,32 @@ export function ServiceConfirmationPanel({
               {/* --- Actions ----------------------------------------------- */}
               {canEdit && (
                 <div className="mt-3 border-t border-border-subtle pt-3">
+                  <div className="mb-3">
+                    <label
+                      htmlFor={`note-${service.id}`}
+                      className="mb-1 block text-[11px] font-medium text-text-secondary"
+                    >
+                      Interne Notiz (optional)
+                    </label>
+                    <textarea
+                      id={`note-${service.id}`}
+                      rows={2}
+                      maxLength={SERVICE_NOTE_MAX_LENGTH}
+                      value={noteOf(service)}
+                      disabled={busy}
+                      placeholder="Warum wurde so entschieden?"
+                      onChange={(event) =>
+                        setNoteDrafts((drafts) => ({
+                          ...drafts,
+                          [service.id]: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs text-text-primary placeholder:text-text-muted transition-colors focus:border-brand focus:outline-none disabled:opacity-60"
+                    />
+                    <p className="mt-1 text-[11px] text-text-muted">
+                      Wird mit der nächsten Entscheidung gespeichert.
+                    </p>
+                  </div>
                   {isChanging ? (
                     <div className="flex flex-wrap items-end gap-2">
                       <div className="min-w-[14rem] flex-1">

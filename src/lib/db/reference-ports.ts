@@ -174,6 +174,18 @@ export interface ReferenceStore {
     country: string | null,
   ): Promise<{ client: BusinessClient; created: boolean }>;
   createClient(input: CreateClientInput): Promise<BusinessClient>;
+  /**
+   * All clients of the organisation, name and comparison key only.
+   * Feeds the duplicate check without loading the full records.
+   */
+  listClientNames(
+    organizationId: string,
+  ): Promise<Array<{ id: string; name: string; normalizedName: string }>>;
+  /** One client by id, scoped to the organisation. Null when foreign. */
+  findClientRecord(
+    organizationId: string,
+    id: string,
+  ): Promise<BusinessClient | null>;
   updateClient(
     organizationId: string,
     id: string,

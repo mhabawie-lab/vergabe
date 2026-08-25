@@ -22,6 +22,7 @@ import { formatDate } from '@/lib/utils/format';
 import { formatShiftSummary } from '@/modules/references/shift-format';
 import {
   BULK_CONFIRM_NOTE,
+  SERVICE_NOTE_MAX_LENGTH,
   canBulkConfirm,
 } from '@/modules/references/confirmation';
 import {
@@ -65,6 +66,8 @@ export function BulkConfirmTable({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmedCount, setConfirmedCount] = useState<number | null>(null);
+  /** One note for the whole selection; stored on each confirmed entry. */
+  const [note, setNote] = useState('');
 
   /**
    * Only projects with exactly one open proposal are selectable. A project
@@ -130,6 +133,7 @@ export function BulkConfirmTable({
         body: JSON.stringify({
           serviceIds: selectedServices.map((entry) => entry.serviceId),
           confirmed: true,
+          note: note.trim().length > 0 ? note.trim() : null,
         }),
       });
 
@@ -148,6 +152,7 @@ export function BulkConfirmTable({
       const result = data as { confirmed: number };
       setConfirmedCount(result.confirmed);
       setSelected(new Set());
+      setNote('');
       router.refresh();
     } catch {
       setError('Die Sammelbestätigung ist fehlgeschlagen.');
@@ -161,12 +166,11 @@ export function BulkConfirmTable({
 
   return (
     <div>
-      {showSelection && (
+      {/* Outside the selection block on purpose: confirming the last open
+          proposal removes that block, and the user would be left without any
+          confirmation that anything happened. */}
+      {(error !== null || confirmedCount !== null) && (
         <div className="flex flex-col gap-2 border-b border-border-subtle px-4 py-3">
-          <p className="text-[11px] leading-snug text-text-muted">
-            {BULK_CONFIRM_NOTE}
-          </p>
-
           {error !== null && (
             <p
               role="alert"
@@ -175,7 +179,6 @@ export function BulkConfirmTable({
               {error}
             </p>
           )}
-
           {confirmedCount !== null && (
             <p className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-subtle px-3 py-2 text-xs text-success">
               <CheckCircle2 className="size-3.5" aria-hidden />
@@ -184,34 +187,62 @@ export function BulkConfirmTable({
                 : `${confirmedCount} Leistungsarten bestätigt.`}
             </p>
           )}
+        </div>
+      )}
+
+      {showSelection && (
+        <div className="flex flex-col gap-2 border-b border-border-subtle px-4 py-3">
+          <p className="text-[11px] leading-snug text-text-muted">
+            {BULK_CONFIRM_NOTE}
+          </p>
 
           {selected.size > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-text-secondary">
-                {selected.size} ausgewählt
-                {selectedCategory !== null &&
-                  ` · ${REFERENCE_SERVICE_CATEGORY_LABELS[selectedCategory]}`}
-              </span>
-              {check.allowed ? (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={pending}
-                  onClick={() => void confirmSelection()}
+            <div className="flex flex-col gap-2">
+              <div className="max-w-2xl">
+                <label
+                  htmlFor="bulk-confirm-note"
+                  className="mb-1 block text-[11px] font-medium text-text-secondary"
                 >
-                  {pending
-                    ? 'Wird bestätigt …'
-                    : `${selected.size} Vorschläge verbindlich bestätigen`}
-                </Button>
-              ) : (
-                <span className="flex items-center gap-1.5 text-xs text-warning">
-                  <AlertTriangle className="size-3.5" aria-hidden />
-                  {check.reason}
+                  Interne Notiz für alle ausgewählten Einträge (optional)
+                </label>
+                <textarea
+                  id="bulk-confirm-note"
+                  rows={2}
+                  maxLength={SERVICE_NOTE_MAX_LENGTH}
+                  value={note}
+                  disabled={pending}
+                  placeholder="Warum werden diese Vorschläge bestätigt?"
+                  onChange={(event) => setNote(event.target.value)}
+                  className="w-full rounded-lg border border-border-strong bg-surface-raised px-3 py-2 text-xs text-text-primary placeholder:text-text-muted transition-colors focus:border-brand focus:outline-none disabled:opacity-60"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-text-secondary">
+                  {selected.size} ausgewählt
+                  {selectedCategory !== null &&
+                    ` · ${REFERENCE_SERVICE_CATEGORY_LABELS[selectedCategory]}`}
                 </span>
-              )}
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-                Auswahl aufheben
-              </Button>
+                {check.allowed ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={pending}
+                    onClick={() => void confirmSelection()}
+                  >
+                    {pending
+                      ? 'Wird bestätigt …'
+                      : `${selected.size} Vorschläge verbindlich bestätigen`}
+                  </Button>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-xs text-warning">
+                    <AlertTriangle className="size-3.5" aria-hidden />
+                    {check.reason}
+                  </span>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                  Auswahl aufheben
+                </Button>
+              </div>
             </div>
           )}
         </div>

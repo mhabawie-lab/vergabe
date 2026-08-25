@@ -126,13 +126,20 @@ entschieden werden. Zur Verfügung stehen:
 - **Vorschlag verwerfen** — der Vorschlag war unzutreffend
 - **Bestätigung zurücksetzen** — macht eine Entscheidung rückgängig
 
+Zu jeder dieser Entscheidungen lässt sich eine **interne Notiz** erfassen. Sie
+ist mit dem bereits gespeicherten Text vorbelegt, geht bei einer weiteren
+Entscheidung also nicht verloren. Im Protokoll steht nur, dass eine Notiz
+vorliegt — nie ihr Inhalt.
+
 Erst `bestätigt` oder `manuell festgelegt` zählt als Nachweis und fließt in
 Suchprofil-Vorschläge ein. Eine unbestimmte Kategorie lässt sich nicht
 bestätigen.
 
 In der Referenzübersicht können mehrere **gleichartige** offene Vorschläge
 gemeinsam bestätigt werden — nur bei identischer Kategorie, nie für
-unbestimmte Leistungsarten und nur nach ausdrücklicher Bestätigung.
+unbestimmte Leistungsarten und nur nach ausdrücklicher Bestätigung. Auch dafür
+steht ein Notizfeld bereit; die Notiz wird an jedem einzelnen Eintrag
+gespeichert, nicht nur am Vorgang.
 
 Siehe `docs/data-protection.md`, Abschnitt 3.
 
@@ -141,7 +148,8 @@ Siehe `docs/data-protection.md`, Abschnitt 3.
 ## Nach dem Import
 
 - **Kunden** (`/customers`) — Kundenliste mit Projektzahl, Standorten und
-  bestätigten Leistungsarten
+  bestätigten Leistungsarten; Kunden lassen sich dort auch von Hand anlegen und
+  bearbeiten (`docs/customers.md`)
 - **Referenzen** (`/references`) — alle Projekte mit Filtern
 - **Importprotokoll** — unten auf der Importseite, inklusive Testläufe
 

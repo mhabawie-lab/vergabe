@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table';
 import { ServiceBadgeList } from '@/components/references/service-badges';
 import { LinkButton } from '@/components/ui/button';
-import { requirePermission } from '@/lib/auth/session';
+import { hasPermission, requirePermission } from '@/lib/auth/session';
 import { getReferenceStore, isUsingDemoStore } from '@/lib/db';
 import { formatDate, formatNumber } from '@/lib/utils/format';
 import {
@@ -37,6 +37,7 @@ export default async function CustomersPage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const session = await requirePermission('clients:read');
+  const canEdit = hasPermission(session, 'clients:write');
 
   const query = parseClientQuery(await searchParams);
   const activeFilters = countActiveClientFilters(query);
@@ -59,9 +60,16 @@ export default async function CustomersPage({
         title="Kunden"
         description="Eigene Geschäftskunden Ihrer Organisation. Getrennt von den öffentlichen Auftraggebern aus Vergabeverfahren."
         actions={
-          <LinkButton href="/imports/references" variant="primary" size="sm">
-            Daten importieren
-          </LinkButton>
+          <div className="flex flex-wrap gap-2">
+            {canEdit && (
+              <LinkButton href="/customers/new" variant="primary" size="sm">
+                Kunde anlegen
+              </LinkButton>
+            )}
+            <LinkButton href="/imports/references" size="sm">
+              Daten importieren
+            </LinkButton>
+          </div>
         }
       />
 
@@ -144,11 +152,18 @@ export default async function CustomersPage({
         {result.total === 0 && activeFilters === 0 ? (
           <EmptyState
             title="Noch keine Kunden erfasst"
-            description="Importieren Sie eine Kundenliste oder legen Sie Kunden über den Datenimport an."
+            description="Legen Sie einen Kunden von Hand an oder importieren Sie eine Kundenliste."
             action={
-              <LinkButton href="/imports/references" variant="primary" size="sm">
-                Zum Datenimport
-              </LinkButton>
+              <div className="flex flex-wrap justify-center gap-2">
+                {canEdit && (
+                  <LinkButton href="/customers/new" variant="primary" size="sm">
+                    Kunde anlegen
+                  </LinkButton>
+                )}
+                <LinkButton href="/imports/references" size="sm">
+                  Zum Datenimport
+                </LinkButton>
+              </div>
             }
           />
         ) : (

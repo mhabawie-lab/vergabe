@@ -7,6 +7,7 @@ import { ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logging';
 import {
   CONFIRMATION_AUDIT_ACTIONS,
+  SERVICE_NOTE_MAX_LENGTH,
   canBulkConfirm,
 } from '@/modules/references/confirmation';
 
@@ -19,6 +20,11 @@ const requestSchema = z.object({
   serviceIds: z.array(z.string().min(1)).min(1).max(MAX_BULK_SIZE),
   /** Must be true. Guards against an unintended bulk assertion. */
   confirmed: z.literal(true),
+  /**
+   * One note for the whole selection. Recorded on every entry, so a later
+   * reader sees the reason on each individual service, not only on a batch.
+   */
+  note: z.string().trim().max(SERVICE_NOTE_MAX_LENGTH).nullable().optional(),
 });
 
 /**
@@ -66,6 +72,8 @@ export async function POST(request: NextRequest) {
       throw new ValidationError(check.reason ?? 'Sammelbestätigung nicht möglich.');
     }
 
+    const note = parsed.data.note ?? null;
+
     let confirmed = 0;
     for (const service of services) {
       const result = await store.applyServiceDecision({
@@ -74,6 +82,9 @@ export async function POST(request: NextRequest) {
         action: 'confirm',
         targetCategory: null,
         userId: session.profile.id,
+        // An empty note must not erase a note somebody wrote on a single
+        // service earlier, so it is only passed on when something was typed.
+        ...(note === null ? {} : { note }),
       });
 
       if (result === null) continue;
@@ -92,6 +103,7 @@ export async function POST(request: NextRequest) {
           previousStatus: result.before.confirmationStatus,
           newStatus: result.after.confirmationStatus,
           bulk: true,
+          hasNote: result.after.notes !== null,
         },
       });
     }

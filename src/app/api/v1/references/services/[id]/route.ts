@@ -9,6 +9,7 @@ import {
   CONFIRMATION_ACTIONS,
   CONFIRMATION_AUDIT_ACTIONS,
   ConfirmationRuleError,
+  SERVICE_NOTE_MAX_LENGTH,
 } from '@/modules/references/confirmation';
 import { REFERENCE_SERVICE_CATEGORIES } from '@/types/reference';
 
@@ -18,7 +19,7 @@ const requestSchema = z.object({
   action: z.enum(CONFIRMATION_ACTIONS),
   /** Required for `change_and_confirm`, ignored otherwise. */
   targetCategory: z.enum(REFERENCE_SERVICE_CATEGORIES).nullable().optional(),
-  note: z.string().trim().max(2000).nullable().optional(),
+  note: z.string().trim().max(SERVICE_NOTE_MAX_LENGTH).nullable().optional(),
 });
 
 /**
@@ -88,6 +89,8 @@ export async function PATCH(
         previousStatus: result.before.confirmationStatus,
         newStatus: result.after.confirmationStatus,
         classificationSource: result.after.classificationSource,
+        // Whether a note was written, never the note itself.
+        hasNote: result.after.notes !== null,
       },
     });
 

@@ -7,7 +7,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { DataList, DataRow, PageHeader, PhasePlaceholder } from '@/components/ui/page';
 import { ReferenceTable } from '@/components/references/reference-table';
 import { ServiceBadge } from '@/components/references/service-badges';
-import { requirePermission } from '@/lib/auth/session';
+import { hasPermission, requirePermission } from '@/lib/auth/session';
 import { getReferenceStore } from '@/lib/db';
 import { formatDate, formatNumber } from '@/lib/utils/format';
 import { CLASSIFICATION_PROPOSAL_NOTE } from '@/modules/references/classification';
@@ -22,6 +22,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function CustomerDetailPage({ params }: PageProps) {
   const session = await requirePermission('clients:read');
+  const canEdit = hasPermission(session, 'clients:write');
 
   const { id } = await params;
   const store = await getReferenceStore();
@@ -47,9 +48,16 @@ export default async function CustomerDetailPage({ params }: PageProps) {
           )
         }
         actions={
-          <LinkButton href="/customers" size="sm">
-            Zurück zur Übersicht
-          </LinkButton>
+          <div className="flex flex-wrap gap-2">
+            {canEdit && (
+              <LinkButton href={`/customers/${client.id}/edit`} variant="primary" size="sm">
+                Kunde bearbeiten
+              </LinkButton>
+            )}
+            <LinkButton href="/customers" size="sm">
+              Zurück zur Übersicht
+            </LinkButton>
+          </div>
         }
       />
 

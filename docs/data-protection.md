@@ -106,6 +106,18 @@ Jede Entscheidung hält fest, **wer** sie **wann** getroffen hat
 (`confirmed_by`, `confirmed_at`) und wird im `audit_log` mit altem und neuem
 Wert protokolliert.
 
+### Notizen zu Entscheidungen
+
+Zu jeder Entscheidung — auch zur Sammelbestätigung — lässt sich eine interne
+Notiz erfassen (höchstens 2.000 Zeichen). Sie steht am Datensatz, nicht im
+Protokoll: Das `audit_log` hält nur fest, **dass** eine Notiz vorliegt
+(`hasNote`), nie ihren Text. Andernfalls würde das Protokoll zu einem zweiten
+Speicher für Geschäftsdaten.
+
+Eine vorhandene Notiz geht bei einer weiteren Entscheidung nicht verloren: Das
+Formular ist mit dem gespeicherten Text vorbelegt, und eine leere
+Sammelbestätigungs-Notiz überschreibt nichts.
+
 ### Sammelbestätigung
 
 Ein Klick darf nur dann mehrere Referenzen zugleich betreffen, wenn die
@@ -118,6 +130,26 @@ Auswahl eindeutig ist. Erlaubt ist sie nur, wenn
 
 Die Regel wird serverseitig erneut geprüft und die Auswahl vorher frisch aus
 der Datenbank gelesen, damit veralteter Client-Zustand nichts bestätigen kann.
+
+---
+
+## 3a. Kundenstammdaten sind Vorschläge, keine Zusammenführungen
+
+Beim Anlegen und Bearbeiten eines Kunden prüft die Anwendung auf Dubletten:
+
+- **gleiche Vergleichsform** → Fehler, der Kunde existiert bereits
+- **ähnliche Vergleichsform** → Warnung; gespeichert wird erst nach
+  ausdrücklicher Bestätigung, beim ersten Versuch wird nichts geschrieben
+
+Zusammengeführt wird **nie automatisch**. Zwei ähnlich geschriebene Firmen
+können zwei verschiedene Unternehmen sein, und das Verschmelzen zweier
+Kundenakten ist praktisch nicht umkehrbar.
+
+Die Schreibweise des Namens bleibt unverändert; die Vergleichsform steht
+daneben, nicht darüber — dieselbe Trennung wie zwischen `raw_data` und
+`normalized_data`.
+
+Einzelheiten: `docs/customers.md`.
 
 ---
 
@@ -158,6 +190,12 @@ Anlegen, Ändern und Löschen von Kunden- und Referenzdaten schreibt einen
 Eintrag in `audit_log` (Trigger `log_reference_change`). Protokolliert werden
 **nur Metadaten**: Organisation, Benutzer, Tabelle, Datensatz-ID und
 Operationsart.
+
+Änderungen an Kundenstammdaten werden zusätzlich fachlich getrennt
+protokolliert — `client_created`, `client_updated`, `client_status_changed`,
+`client_notes_changed` —, ebenfalls ohne Feldinhalte. Eine Statusänderung und
+eine geänderte Notiz sind eigene, nachvollziehbare Ereignisse und nicht ein
+undifferenziertes „geändert".
 
 Der Inhalt des Datensatzes wird bewusst nicht kopiert — das Audit-Log soll
 nachvollziehbar machen, wer wann was geändert hat, und nicht zu einem zweiten

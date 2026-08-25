@@ -376,6 +376,29 @@ export class MemoryReferenceStore implements ReferenceStore {
     return client;
   }
 
+  async listClientNames(
+    organizationId: string,
+  ): Promise<Array<{ id: string; name: string; normalizedName: string }>> {
+    return this.tables.clients
+      .filter((client) => client.organizationId === organizationId)
+      .map((client) => ({
+        id: client.id,
+        name: client.name,
+        normalizedName: client.normalizedName,
+      }));
+  }
+
+  async findClientRecord(
+    organizationId: string,
+    id: string,
+  ): Promise<BusinessClient | null> {
+    return (
+      this.tables.clients.find(
+        (client) => client.id === id && client.organizationId === organizationId,
+      ) ?? null
+    );
+  }
+
   async updateClient(
     organizationId: string,
     id: string,
@@ -411,6 +434,8 @@ export class MemoryReferenceStore implements ReferenceStore {
 
     const filtered = items.filter((item) => {
       if (query.q !== undefined) {
+        // Same haystack and same comparison form as
+        // `public.reference_compare_form` in the SQL search.
         const needle = normalizeForComparison(query.q);
         const haystack = normalizeForComparison(
           [
@@ -473,34 +498,51 @@ export class MemoryReferenceStore implements ReferenceStore {
       }
 
       // A period filter matches when the project overlaps the window at all.
+      // A missing date is not evidence that the project lies outside it: an
+      // open-ended project matches every window. Same rule in SQL
+      // (`0010_reference_search_rpc.sql`).
       if (query.periodFrom !== undefined) {
-        const end = item.endDate ?? item.startDate;
-        if (end !== null && end < query.periodFrom) return false;
+        if (item.endDate !== null && item.endDate < query.periodFrom) return false;
       }
       if (query.periodTo !== undefined) {
-        const start = item.startDate ?? item.endDate;
-        if (start !== null && start > query.periodTo) return false;
+        if (item.startDate !== null && item.startDate > query.periodTo) return false;
       }
 
       return true;
     });
 
+    // Tie-breaker data lives on the project, not on the list item.
+    const createdAt = new Map(
+      this.projectsOf(organizationId).map((project) => [project.id, project.createdAt]),
+    );
+
     const sorted = [...filtered].sort((a, b) => {
-      switch (query.sort) {
-        case 'project_name':
-          return query.direction === 'asc'
-            ? a.projectName.localeCompare(b.projectName, 'de')
-            : b.projectName.localeCompare(a.projectName, 'de');
-        case 'client':
-          return compareNullableString(
-            a.businessClientName,
-            b.businessClientName,
-            query.direction,
-          );
-        case 'start_date':
-        default:
-          return compareNullableString(a.startDate, b.startDate, query.direction);
-      }
+      const primary = ((): number => {
+        switch (query.sort) {
+          case 'project_name':
+            return query.direction === 'asc'
+              ? a.projectName.localeCompare(b.projectName, 'de')
+              : b.projectName.localeCompare(a.projectName, 'de');
+          case 'client':
+            return compareNullableString(
+              a.businessClientName,
+              b.businessClientName,
+              query.direction,
+            );
+          case 'start_date':
+          default:
+            return compareNullableString(a.startDate, b.startDate, query.direction);
+        }
+      })();
+
+      if (primary !== 0) return primary;
+
+      // Without a deterministic tie-breaker two pages can show the same row
+      // and drop another. The SQL search orders the same way.
+      const createdComparison = (createdAt.get(b.id) ?? '').localeCompare(
+        createdAt.get(a.id) ?? '',
+      );
+      return createdComparison !== 0 ? createdComparison : a.id.localeCompare(b.id);
     });
 
     return paginate(sorted, query.page, query.pageSize);

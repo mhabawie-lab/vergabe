@@ -799,8 +799,10 @@ Regel-ID, einen Konfidenzwert und `confirmed_by_user = false`.
 
 | Route | Stand |
 |---|---|
-| `/customers` | Kundenübersicht mit Suche, Status-, Orts- und Leistungsfilter, Sortierung, Paginierung, Dublettenhinweis |
-| `/customers/[id]` | Stammdaten, Kennzahlen, Standorte, Leistungsarten, Referenzprojekte, Notizen |
+| `/customers` | Kundenübersicht mit Suche, Status-, Orts- und Leistungsfilter, Sortierung, Paginierung, Dublettenhinweis, Schaltfläche „Kunde anlegen" |
+| `/customers/new` | Kunde anlegen — Vergleichsform-Vorschau, Dublettenrückfrage, `clients:write` |
+| `/customers/[id]` | Stammdaten, Kennzahlen, Standorte, Leistungsarten, Referenzprojekte, Notizen, Schaltfläche „Kunde bearbeiten" |
+| `/customers/[id]/edit` | Kunde bearbeiten — fremde IDs gelten als „nicht gefunden" |
 | `/references` | Referenzübersicht mit acht Filtern und Volltextsuche |
 | `/references/[id]` | Projektübersicht, Standort, Leistungsarten, Zeitraum, Original-Importwerte, Warnungen |
 | `/imports/references` | Importdialog, manuelle Erfassung, Importprotokoll |
@@ -808,6 +810,8 @@ Regel-ID, einen Konfidenzwert und `confirmed_by_user = false`.
 | `/api/v1/references/import/run` | Testlauf oder bestätigter Import |
 | `/api/v1/references/import/template` | Anonymisierte CSV-Vorlage |
 | `/api/v1/references/manual` | Einzelnes Referenzprojekt anlegen |
+| `/api/v1/references/clients` | Kunde anlegen (POST), zweistufige Dublettenbestätigung |
+| `/api/v1/references/clients/[id]` | Kunde bearbeiten (PATCH), getrennte Audit-Einträge je Ereignis |
 
 Sidebar-Gruppe „Eigene Daten" mit Kunden, Referenzen und Datenimport.
 Dashboard um vier Kennzahlen ergänzt (aktive Kunden, Referenzobjekte,
@@ -826,7 +830,7 @@ keinen Vorschlag. Die eigentliche Match-Engine ist nicht Teil dieser Phase.
 
 ### 13.8 Automatisierte Tests
 
-Erstmals im Projekt: **vitest**, 109 Tests in 6 Dateien.
+**vitest**, 141 Tests in 7 Dateien, dazu ein SQL-Prüfskript mit 22 Fällen.
 
 | Datei | Umfang |
 |---|---|
@@ -836,6 +840,12 @@ Erstmals im Projekt: **vitest**, 109 Tests in 6 Dateien.
 | `tests/classification.test.ts` | Vorsichtige Leistungserkennung, keine Klassifikation unbekannter Namen |
 | `tests/import-pipeline.test.ts` | Dublettenerkennung, Testlauf ohne Speichern, bestätigter Import, Mandantentrennung, Suchprofil-Vorschläge |
 | `tests/service-confirmation.test.ts` | Alle fünf Entscheidungen, Berechtigungen, Mandantentrennung, Audit-Einträge, Sammelbestätigungsregeln, Auswirkung auf Kennzahlen und Vorschläge |
+| `tests/customer-management.test.ts` | Kundenformular (Pflichtfeld, Länge, Website, Ländercode, Dubletten als Fehler bzw. Warnung, Änderungsdiff), Mandantentrennung, Berechtigungen, Referenzsuche mit allen Filtern, Notizen an allen fünf Entscheidungen |
+| `supabase/tests/reference-search.sql` | Dieselben Suchfälle gegen `search_reference_projects` — Volltext, Filter, Sortier-Whitelist, Seitenzahlen, Mandantentrennung |
+
+Die letzten beiden prüfen bewusst **dieselben** Erwartungen. Ein Test gegen den
+Entwicklungsspeicher allein würde über das Verhalten in der Datenbank nichts
+aussagen.
 
 ### 13.9 Supabase
 
@@ -852,6 +862,12 @@ DATABASE_URL=
 ```
 
 Danach: `supabase db push`. Zusätzliche Variablen benötigt Phase 2 nicht.
+
+Schema und Suchfunktion lassen sich **ohne** Supabase-Zugang gegen ein lokales
+PostgreSQL prüfen; der Ablauf steht in `docs/supabase-setup.md`. Alle zehn
+Migrationen und die 22 Fälle des Suchskripts sind auf diesem Weg durchlaufen
+worden, einschließlich einer Gegenprobe, dass ein Nichtmitglied unter RLS kein
+Ergebnis erhält.
 
 Der lokale Adapter ist flüchtig. Die Oberfläche weist auf `/customers` und im
 Importdialog ausdrücklich darauf hin, dass dort keine echten Kundendaten
@@ -904,30 +920,65 @@ alten und neuen Wert, Aktion und Zeitstempel — über den Datenbank-Trigger
 gleichermaßen nachvollziehbar sind. Die Historie ist auf der Detailseite
 sichtbar.
 
+### 13.10a Notizen an Entscheidungen
+
+Jede der fünf Entscheidungen und die Sammelbestätigung nehmen eine interne
+Notiz entgegen (höchstens 2.000 Zeichen, serverseitig geprüft). Das Feld ist
+mit dem gespeicherten Text vorbelegt, damit eine weitere Entscheidung eine
+vorhandene Begründung nicht stillschweigend löscht; eine leere
+Sammelbestätigungs-Notiz überschreibt nichts.
+
+Im `audit_log` steht nur `hasNote` — nie der Text. Sonst würde das Protokoll zu
+einem zweiten Speicher für Geschäftsdaten (`docs/data-protection.md`, § 6).
+
+### 13.10b Serverseitige Referenzsuche
+
+`0010_reference_search_rpc.sql` legt `public.search_reference_projects` an. Die
+Filter auf Leistungsart und Bestätigungsstand liegen in einer Kindtabelle und
+wurden im Supabase-Adapter bisher auf der bereits geladenen Seite angewendet —
+mit falscher Gesamtzahl und halbleeren Seiten als Folge. Jetzt filtert,
+sortiert und paginiert die Datenbank; die Anwendung liest die Treffer-IDs und
+die Gesamtzahl.
+
+| Anforderung | Umsetzung |
+|---|---|
+| Rechte der aufrufenden Person | `security invoker`, RLS gilt unverändert |
+| keine fremde `organization_id` | zusätzlich `is_org_member()`; fremde Organisation → leeres Ergebnis, kein Fehler |
+| keine dynamische SQL-Sortierung | Whitelist über `case`; ein unbekanntes Sortierfeld fällt auf den Standard zurück |
+| parametrisierte Abfragen | ausschließlich Parameter; der Suchtext wird auf die Vergleichsform reduziert, `%` ist kein Platzhalter |
+| keine Service-Role im Browser | die Funktion wird über den normalen Client aufgerufen, `execute` nur für `authenticated` |
+| stabile Seiten | eindeutiger Nachschlüssel in der Sortierung |
+
+Zwei Hilfsfunktionen bilden `normalizeForComparison` und `normalizeCityName`
+in SQL nach, damit Datenbank und Entwicklungsspeicher dieselbe Suche gleich
+beantworten. Beide Adapter werden an denselben Testfällen gemessen.
+
 ### 13.11 Bekannte offene Punkte
 
-1. **Kunden anlegen und bearbeiten nur über den Import.** `createClient` und
-   `updateClient` sind implementiert, ein eigenes Formular auf `/customers`
-   fehlt.
-2. **Leistungs- und Bestätigungsfilter im Supabase-Adapter wirken nur auf der
-   geladenen Seite.**
-   PostgREST kann „enthält eine dieser Kategorien" nicht zusammen mit den
-   übrigen Filtern ausdrücken; sauber löst das eine RPC-Funktion. Der
-   In-Memory-Adapter filtert bereits vollständig.
-3. **Kundenliste lädt alle Projekte der Organisation** für die Aggregate. Ab
-   einigen Tausend Projekten braucht es eine materialisierte Sicht.
-4. **RLS ist nicht gegen eine echte Datenbank getestet.** Die
-   Mandantentrennung ist im lokalen Adapter getestet; die Richtlinien selbst
-   lassen sich erst mit Supabase-Zugang prüfen.
-5. **PDF-Import und OCR fehlen** — bewusst außerhalb dieser Phase.
-6. **Referenznachweise als Dokumente** folgen mit der Dokumentenverarbeitung.
-7. **Notizfeld bei einer Entscheidung** wird von der API unterstützt, hat aber
-   noch kein Eingabefeld in der Oberfläche.
+1. **Kundenliste lädt alle Projekte der Organisation** für die Aggregate
+   (Projektzahl, Standorte, bestätigte Leistungsarten). Ab einigen Tausend
+   Projekten braucht es eine materialisierte Sicht oder eine zweite Funktion
+   nach dem Muster von `search_reference_projects`.
+2. **RLS ist nicht automatisiert gegen eine echte Supabase-Instanz getestet.**
+   Die Mandantentrennung ist im lokalen Adapter getestet und die Richtlinien
+   wurden gegen ein lokales PostgreSQL mit nachgebildetem `auth`-Schema
+   gegengeprüft — beides ersetzt keinen Lauf gegen das echte Projekt.
+3. **Kundendubletten lassen sich nicht zusammenführen.** Bewusst: Das
+   Verschmelzen zweier Kundenakten ist nicht umkehrbar. Die Anwendung warnt und
+   überlässt die Entscheidung dem Menschen.
+4. **PDF-Import und OCR fehlen** — bewusst außerhalb dieser Phase.
+5. **Referenznachweise als Dokumente** folgen mit der Dokumentenverarbeitung.
+6. **Die Bedeutung der Schichtzahlen** (`218/146/0`) ist weiterhin unbestätigt.
+   Der Originalwert bleibt erhalten; benannt wird er erst, wenn die Bedeutung
+   geklärt ist.
+
+Erledigt gegenüber dem vorherigen Stand: Kundenformular, Notizfeld an allen
+Entscheidungen, serverseitige Filterung im Supabase-Adapter.
 
 ### 13.12 Nächste sinnvolle Schritte
 
 1. Supabase-Projekt anlegen, Migrationen anwenden, RLS gegen die echte
    Datenbank prüfen.
-2. Kundenformular für Anlage und Bearbeitung.
-3. Bedeutung der Schichtzahlen klären und erst danach benennen.
+2. Bedeutung der Schichtzahlen klären und erst danach benennen.
+3. Aggregation der Kundenliste in die Datenbank verlagern.
 4. Erst dann TED/eForms als erste Live-Quelle.

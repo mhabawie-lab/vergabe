@@ -44,6 +44,15 @@ export const CONFIRMATION_AUDIT_ACTIONS: Record<ConfirmationAction, string> = {
   reset: 'service_confirmation_reset',
 };
 
+/**
+ * Upper bound for the note stored with a decision.
+ *
+ * Long enough for a real justification, short enough that the field cannot be
+ * used as a second store for customer records — the audit trail keeps
+ * metadata, not data (`docs/data-protection.md`, section 6).
+ */
+export const SERVICE_NOTE_MAX_LENGTH = 2000;
+
 /** The state a service is in before a decision is applied. */
 export interface ServiceConfirmationState {
   serviceCategory: ReferenceServiceCategory;

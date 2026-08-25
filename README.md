@@ -4,12 +4,23 @@ Intelligente Plattform für öffentliche und private Ausschreibungen. Sammelt
 Ausschreibungen aus vielen Quellen, überführt sie in ein gemeinsames internes
 Format, reichert sie an und bewertet ihre Relevanz.
 
-**Aktueller Stand: Phase 1 abgeschlossen.** Es ist ausschließlich eine
-DEMO-Datenquelle angebunden. Live-Quellen (TED / EU eForms, deutsche
-Bundes-, Landes- und Kommunalportale) folgen in Phase 2.
+**Aktueller Stand: Phase 2 abgeschlossen** — eigene Kunden, Referenzprojekte
+und deren Import. Als Ausschreibungsquelle ist weiterhin ausschließlich die
+DEMO-Quelle angebunden; Live-Quellen (TED / EU eForms, deutsche Bundes-,
+Landes- und Kommunalportale) folgen später.
 
 - Architektur, Datenmodell und Phasenplan: [`PROJECT_PLAN.md`](./PROJECT_PLAN.md)
 - Verbindliche Entwicklungsregeln: [`CLAUDE.md`](./CLAUDE.md)
+
+Anleitungen:
+
+| Thema | Datei |
+|---|---|
+| Kunden anlegen und pflegen | [`docs/customers.md`](./docs/customers.md) |
+| Referenzdaten importieren | [`docs/reference-import.md`](./docs/reference-import.md) |
+| Datenbank einrichten und prüfen | [`docs/supabase-setup.md`](./docs/supabase-setup.md) |
+| Datenschutz und Datenhaltung | [`docs/data-protection.md`](./docs/data-protection.md) |
+| Datenbankschema | [`docs/database-schema.md`](./docs/database-schema.md) |
 
 ---
 
@@ -36,7 +47,8 @@ Anmeldung nötig, und jeder Datensatz ist als DEMO gekennzeichnet.
 | `npm run start`       | Produktionsserver                                      |
 | `npm run typecheck`   | TypeScript ohne Emit                                   |
 | `npm run lint`        | ESLint                                                 |
-| `npm run verify`      | Typecheck + Lint + Build in einem Durchlauf            |
+| `npm run test`        | Vitest                                                 |
+| `npm run verify`      | Typecheck + Lint + Test + Build in einem Durchlauf      |
 | `npm run ingest:demo` | Importiert die DEMO-Quelle über die komplette Pipeline |
 
 ## Konfiguration
@@ -75,6 +87,17 @@ Reihenfolge der Migrationen:
 4. `0004_tenders.sql` — Ausschreibungen, Auftraggeber, Lose, Dokumente, Zuschläge
 5. `0005_workspace.sql` — Unternehmensprofil, Favoriten, Suchprofile, Audit-Log
 6. `0006_register_demo_source.sql` — DEMO-Quelle plus Schutz-Trigger
+7. `0007_business_clients.sql` — eigene Kunden und Referenzprojekte
+8. `0008_reference_rls_audit.sql` — RLS und Audit für Referenzdaten
+9. `0009_service_confirmation.sql` — Bestätigungszustand der Leistungsarten
+10. `0010_reference_search_rpc.sql` — serverseitige Referenzsuche
+
+Ohne Supabase-Zugangsdaten lassen sich Schema und Suchfunktion gegen ein
+lokales PostgreSQL prüfen — siehe [`docs/supabase-setup.md`](./docs/supabase-setup.md).
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/reference-search.sql
+```
 
 ## Import ausführen
 

@@ -141,6 +141,12 @@ interface ImportRowRow {
   created_at: string;
 }
 
+/** One row of `search_reference_projects`: the id plus the count of matches. */
+interface SearchMatchRow {
+  id: string;
+  total_count: number;
+}
+
 const PROJECT_COLUMNS = `
   id, organization_id, business_client_id, external_object_number, project_name,
   object_type, country, region, city, postal_code, address, start_date, end_date,
@@ -535,6 +541,36 @@ export class SupabaseReferenceStore implements ReferenceStore {
     return toClient(row);
   }
 
+  async listClientNames(
+    organizationId: string,
+  ): Promise<Array<{ id: string; name: string; normalizedName: string }>> {
+    const { data, error } = await this.client
+      .from('business_clients')
+      .select('id, name, normalized_name')
+      .eq('organization_id', organizationId);
+
+    if (error !== null) return [];
+    return asRows<{ id: string; name: string; normalized_name: string }>(data).map(
+      (row) => ({ id: row.id, name: row.name, normalizedName: row.normalized_name }),
+    );
+  }
+
+  async findClientRecord(
+    organizationId: string,
+    id: string,
+  ): Promise<BusinessClient | null> {
+    const { data, error } = await this.client
+      .from('business_clients')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error !== null) return null;
+    const row = asRow<ClientRow>(data);
+    return row === null ? null : toClient(row);
+  }
+
   async updateClient(
     organizationId: string,
     id: string,
@@ -572,93 +608,75 @@ export class SupabaseReferenceStore implements ReferenceStore {
     organizationId: string,
     query: ReferenceQuery,
   ): Promise<PaginatedResult<ReferenceProjectListItem>> {
-    let request = this.client
-      .from('reference_projects')
-      .select(PROJECT_COLUMNS, { count: 'exact' })
-      .eq('organization_id', organizationId);
+    // Filtering happens in the database (migration 0010). Doing it here on an
+    // already-fetched page would produce wrong totals and half-empty pages,
+    // because the service filters live in a child table.
+    const { data: matches, error: searchError } = await this.client.rpc(
+      'search_reference_projects',
+      {
+        p_organization_id: organizationId,
+        p_query: query.q ?? null,
+        p_client_id: query.clientId ?? null,
+        p_city: query.city ?? null,
+        p_region: query.region ?? null,
+        p_object_type: query.objectType ?? null,
+        p_services:
+          query.services !== undefined && query.services.length > 0
+            ? query.services
+            : null,
+        p_statuses:
+          query.statuses !== undefined && query.statuses.length > 0
+            ? query.statuses
+            : null,
+        p_reference_status: query.referenceStatus ?? null,
+        p_confirmation_status: query.confirmationStatus ?? null,
+        p_period_from: query.periodFrom ?? null,
+        p_period_to: query.periodTo ?? null,
+        p_sort: query.sort,
+        p_direction: query.direction,
+        p_limit: query.pageSize,
+        p_offset: (query.page - 1) * query.pageSize,
+      },
+    );
 
-    if (query.clientId !== undefined) {
-      request = request.eq('business_client_id', query.clientId);
-    }
-    if (query.city !== undefined) request = request.ilike('city', `%${query.city}%`);
-    if (query.region !== undefined) request = request.eq('region', query.region);
-    if (query.objectType !== undefined) {
-      request = request.eq('object_type', query.objectType);
-    }
-    if (query.statuses !== undefined && query.statuses.length > 0) {
-      request = request.in('project_status', query.statuses);
-    }
-    if (query.q !== undefined) {
-      request = request.or(
-        `project_name.ilike.%${query.q}%,external_object_number.ilike.%${query.q}%,city.ilike.%${query.q}%`,
+    if (searchError !== null) {
+      throw new Error(
+        `Referenzen konnten nicht geladen werden: ${searchError.message}. ` +
+          'Ist die Migration 0010_reference_search_rpc.sql eingespielt?',
       );
     }
-    if (query.periodFrom !== undefined) {
-      request = request.or(`end_date.gte.${query.periodFrom},end_date.is.null`);
-    }
-    if (query.periodTo !== undefined) {
-      request = request.or(`start_date.lte.${query.periodTo},start_date.is.null`);
+
+    const rows = asRows<SearchMatchRow>(matches);
+    const total = rows[0]?.total_count ?? 0;
+    const pageCount = Math.max(1, Math.ceil(total / query.pageSize));
+
+    if (rows.length === 0) {
+      return { items: [], total, page: query.page, pageSize: query.pageSize, pageCount };
     }
 
-    const ascending = query.direction === 'asc';
-    switch (query.sort) {
-      case 'project_name':
-        request = request.order('project_name', { ascending });
-        break;
-      case 'client':
-        request = request.order('business_client_id', { ascending });
-        break;
-      case 'start_date':
-      default:
-        request = request.order('start_date', { ascending, nullsFirst: false });
-        break;
-    }
+    const ids = rows.map((row) => row.id);
 
-    const offset = (query.page - 1) * query.pageSize;
-    const { data, error, count } = await request.range(
-      offset,
-      offset + query.pageSize - 1,
-    );
+    const { data, error } = await this.client
+      .from('reference_projects')
+      .select(PROJECT_COLUMNS)
+      // The organisation filter is redundant next to RLS and the function, and
+      // stays anyway: a tenancy check is not something to hold in one place.
+      .eq('organization_id', organizationId)
+      .in('id', ids);
 
     if (error !== null) {
       throw new Error(`Referenzen konnten nicht geladen werden: ${error.message}`);
     }
 
-    let items = asRows<ProjectRow>(data).map(toListItem);
+    // `in` does not preserve order, so the ordering decided in SQL is restored.
+    const byId = new Map(
+      asRows<ProjectRow>(data).map((row) => [row.id, toListItem(row)]),
+    );
+    const items = ids
+      .map((id) => byId.get(id))
+      .filter((item): item is ReferenceProjectListItem => item !== undefined);
 
-    // Service filters live in the child table; PostgREST cannot express
-    // "has any of these categories" together with the rest, so they are
-    // applied here on the page that was fetched.
-    if (query.services !== undefined && query.services.length > 0) {
-      const wanted = new Set(query.services);
-      items = items.filter((item) =>
-        item.serviceCategories.some((category) => wanted.has(category)),
-      );
-    }
-    if (query.referenceStatus === 'confirmed') {
-      items = items.filter((item) => !item.hasUnconfirmedServices);
-    }
-    if (query.referenceStatus === 'open') {
-      items = items.filter((item) => item.hasUnconfirmedServices);
-    }
-    if (query.confirmationStatus === 'evidence') {
-      items = items.filter((item) => item.confirmedServiceCategories.length > 0);
-    }
-    if (query.confirmationStatus === 'proposed') {
-      items = items.filter((item) => item.hasOnlyProposals);
-    }
-    if (query.confirmationStatus === 'undecided') {
-      items = items.filter((item) => item.hasUnconfirmedServices);
-    }
-
-    const total = count ?? items.length;
-    return {
-      items,
-      total,
-      page: query.page,
-      pageSize: query.pageSize,
-      pageCount: Math.max(1, Math.ceil(total / query.pageSize)),
-    };
+    return { items, total, page: query.page, pageSize: query.pageSize, pageCount };
   }
 
   async findProjectById(

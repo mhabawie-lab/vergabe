@@ -311,9 +311,15 @@ export default async function ReferenceDetailPage({ params }: PageProps) {
                             ({String(previous)} → {String(next)})
                           </span>
                         )}
+                        {entry.metadata['bulk'] === true && (
+                          <span className="text-text-muted"> · Sammelbestätigung</span>
+                        )}
                         <span className="tabular mt-0.5 block text-[11px] text-text-muted">
                           {formatDateTime(entry.createdAt)}
                           {entry.userName !== null && ` · ${entry.userName}`}
+                          {/* The log records that a note exists, not its text —
+                              the note itself stands on the service above. */}
+                          {entry.metadata['hasNote'] === true && ' · mit Notiz'}
                         </span>
                       </li>
                     );
