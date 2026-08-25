@@ -203,11 +203,49 @@ Speicher für Kundendaten werden.
 
 ---
 
+## 6a. Subunternehmer-Radar
+
+Die Partnerdaten sind der vertraulichste Bestand der Anwendung: Sie benennen
+Dritte, halten Preisverhandlungen fest und verweisen auf deren Unterlagen.
+
+**Kein Marktplatz.** Fremde Unternehmen haben kein Konto, kein Profil, keinen
+Einblick und keine Möglichkeit, etwas einzureichen. Alles hier sind Notizen
+*einer* Organisation über Dritte.
+
+| Datenart | Regel |
+|---|---|
+| Preise und Konditionen | eigene Berechtigung `subcontractors:financial`; Beträge nie im Audit-Log |
+| Dokumente | privater Bucket, keine öffentliche URL, Zugriff nur über kurzlebige signierte Links |
+| Interne Notizen | bleiben am Datensatz; im Protokoll steht nur, dass es sie gibt |
+| Interne Bewertung | subjektiv, als solche gekennzeichnet, nie nach außen |
+| Signale | Beobachtungen mit Pflicht-Quellenangabe, nie als Tatsache dargestellt |
+| Eigene Bedarfe | niemals öffentlich, werden nirgends ausgeschrieben |
+
+**Was gilt und was nicht:**
+
+- Nur **bestätigte** Leistungen zählen als Nachweis. Eine Selbstauskunft wird
+  festgehalten und ist kein Beleg.
+- Ein **abgelaufener oder ungeprüfter Nachweis gilt nicht als erfüllt**.
+- Ein **Ablaufdatum wird nie geschätzt**.
+- **Veraltete Verfügbarkeit** gilt als unbekannt, nicht als ihr alter Wert.
+- Ein **Signal ändert die Beziehungsrichtung nicht automatisch**.
+- Es gibt **keine automatische Zusammenführung** ähnlicher Firmen.
+- **Keine Premiumdaten ohne Lizenz**, keine Orbis- oder Moody's-Übernahme, kein
+  automatisches Web-Scraping.
+- **Match Scores sind erklärbare Hilfsmittel**, keine automatische
+  Vergabeentscheidung.
+
+Echte Partnerdaten gehören ebenso wenig ins Repository wie Kundendaten — nicht
+als Seed, nicht als Testdatei, nicht in Commit-Nachrichten. Einzige verfolgte
+Datendatei bleibt die anonymisierte Vorlage.
+
+---
+
 ## 7. Flüchtiger Entwicklungsspeicher
 
 Ohne konfigurierte Supabase-Zugangsdaten läuft die Anwendung gegen einen
 prozessinternen Speicher. Referenzdaten gehen dann beim Neustart verloren.
 
-Die Oberfläche weist an jeder Stelle darauf hin, an der Kundendaten erfasst
-werden könnten — auf `/customers` und im Importdialog. **In diesen Speicher
-gehören keine echten Kundendaten.**
+Die Oberfläche weist an jeder Stelle darauf hin, an der Kunden- oder
+Partnerdaten erfasst werden könnten — auf `/customers`, `/subcontractors` und in
+beiden Importdialogen. **In diesen Speicher gehören keine echten Daten.**

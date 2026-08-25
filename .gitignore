@@ -51,4 +51,6 @@ next-env.d.ts
 *.import.xlsx
 reference-import-*.csv
 reference-import-*.xlsx
+partner-import-*.csv
+partner-import-*.xlsx
 !docs/reference-import-template.csv

@@ -1,6 +1,6 @@
 # SicherVergabe — Projektplan
 
-> Status: **Phase 2 abgeschlossen** (Stand: August 2026).
+> Status: **Phase 3A abgeschlossen** (Stand: August 2026).
 > Phase 1 lieferte Fundament, Kerndatenmodell, Ingestion-Pipeline mit
 > DEMO-Quelle sowie Dashboard, Ausschreibungssuche und Detailansicht.
 > Phase 2 ergänzt die mandantenfähige Verwaltung eigener Kunden, Baustellen
@@ -11,9 +11,10 @@
 > sondern die eigenen Kunden- und Referenzdaten. Die Anbindung erster
 > Live-Vergabequellen verschiebt sich entsprechend nach hinten.
 >
-> Kapitel 14 beschreibt das geplante **Subunternehmer-Radar** — ein rein
-> internes, mandantenprivates Werkzeug. Ausdrücklich **keine** öffentliche
-> Partnerbörse und kein Marktplatz; noch nicht implementiert.
+> **Phase 3A** ergänzt das **Subunternehmer-Radar** — ein rein internes,
+> mandantenprivates Werkzeug. Ausdrücklich **keine** öffentliche Partnerbörse
+> und kein Marktplatz. Kapitel 14 hält die Ausrichtung fest, Kapitel 15 den
+> Umsetzungsstand.
 >
 > Dieses Dokument beschreibt Architektur, Datenmodell, Connector-Design,
 > Auth/Rollen, API-Struktur, Import-/Normalisierungsprozess,
@@ -993,10 +994,10 @@ Entscheidungen, serverseitige Filterung im Supabase-Adapter.
 
 ---
 
-## 14. Subunternehmer-Radar (geplant, noch nicht implementiert)
+## 14. Subunternehmer-Radar — Ausrichtung
 
-> **Status: Planung.** Es existiert kein Code, kein Schema und keine Route für
-> diesen Bereich. Dieses Kapitel legt die Ausrichtung fest, bevor gebaut wird.
+> **Status: umgesetzt in Phase 3A.** Dieses Kapitel hält die fachliche
+> Ausrichtung fest; der Umsetzungsstand steht in Kapitel 15.
 
 ### 14.1 Abgrenzung — was der Bereich ausdrücklich nicht ist
 
@@ -1145,3 +1146,194 @@ Deshalb:
    ist offen.
 4. Die Tiefe der Nachunternehmerkette (nur direkte Nachunternehmer oder
    mehrstufig) ist fachlich zu klären.
+
+
+---
+
+## 15. Umsetzungsstand Phase 3A — Subunternehmer-Radar
+
+### 15.1 Namensentscheidung
+
+Die Tabellen heißen **`partner_companies`**, nicht `subcontractors`. Ein
+Datensatz kann für uns arbeiten, uns beauftragen oder beides; die Tabelle nach
+nur einer dieser Richtungen zu benennen hätte die falsche Annahme in jede
+Abfrage eingebaut, die je darauf geschrieben wird.
+
+Die Oberfläche behält den betrieblichen Begriff **Subunternehmer-Radar**.
+Kindtabellen tragen konsequent das Präfix `partner_`; die drei Tabellen, die
+unseren eigenen Bedarf und dessen Auswertung abbilden, heißen
+`subcontractor_needs`, `subcontractor_matches` und `subcontractor_assignments`,
+weil sie tatsächlich von Unterbeauftragung handeln.
+
+### 15.2 Abgrenzung
+
+Nicht gebaut, bewusst und dauerhaft: externe Benutzerkonten, öffentliche
+Partnerprofile, veröffentlichte Gesuche, Bewerbungen über die Plattform,
+öffentliche Suche, Nachrichten- oder Chatsystem, Zahlungsabwicklung,
+automatisches Web-Scraping, Orbis-/Moody's-Anbindung, TED/eForms.
+
+### 15.3 Datenbank
+
+Drei Migrationen, **15 Tabellen**, 24 Enums:
+
+- `0011_partner_companies.sql` — Tabellen und Enums
+- `0012_partner_rls_audit.sql` — RLS, Audit-Trigger, Demo-Schutz, Sperr- und
+  Kettenprüfung
+- `0013_partner_search_rpc.sql` — `search_partner_companies`
+
+Mandantensicherung: Jede Kindtabelle führt `organization_id` selbst **und** ist
+über einen zusammengesetzten Fremdschlüssel auf `(id, organization_id)` der
+Elterntabelle gebunden. Die Spalte allein könnte auseinanderlaufen; der
+Schlüssel macht das in der Datenbank unmöglich.
+
+Weitere Schutzmechanismen in der Datenbank, nicht nur im Anwendungscode:
+
+| Mechanismus | Wirkung |
+|---|---|
+| `partner_documents_storage_private` | lehnt jeden Pfad ab, der wie eine öffentliche URL aussieht |
+| `enforce_partner_block_reason()` | eine Sperrung braucht eine Begründung; „gesperrt" und „bevorzugt" schließen sich aus |
+| `enforce_assignment_chain()` | errechnet die Kettenebene, verhindert Kreise, begrenzt auf sechs Ebenen |
+| `reject_demo_partner_data()` | Partnerdaten hängen nie an einer Demo-Organisation |
+| `log_partner_change()` | Audit-Einträge mit Metadaten, nie mit Feldinhalten |
+
+### 15.4 Berechtigungen
+
+Fünf statt einer, weil die Daten im Bereich unterschiedlich vertraulich sind:
+`subcontractors:read`, `:write`, `:documents`, `:financial`, `:admin`.
+
+Ein Bid Manager pflegt den Bestand vollständig, **ohne** verhandelte Preise zu
+sehen. Ohne `:financial` ist das Register „Konditionen" gar nicht sichtbar — ein
+leeres Register würde bereits verraten, dass es Preise gibt. Vollständige
+Matrix: `docs/permissions.md`.
+
+### 15.5 Seiten und Routen
+
+Zwölf Seiten unter `/subcontractors` (Übersicht, anlegen, Detail mit 13
+Registern, bearbeiten, Signale, Bedarf, Bedarf anlegen, Bedarf-Detail,
+Projektzuordnungen, Nachweise, Aktivitäten, Import) plus 15 API-Routen unter
+`/api/v1/partners`.
+
+Sidebar-Gruppe „Subunternehmer-Radar" mit sieben Einträgen; Dashboard um sechs
+Kennzahlen ergänzt, sichtbar erst, wenn Daten vorliegen und die Rolle sie lesen
+darf.
+
+### 15.6 Die vier Ehrlichkeitsregeln
+
+Sie ziehen sich durch Schema, Domänenlogik und Oberfläche:
+
+1. Nur **bestätigte** Leistungen zählen; eine Selbstauskunft ist kein Nachweis.
+2. **Abgelaufene oder ungeprüfte Nachweise** gelten nicht als erfüllt, und ein
+   Ablaufdatum wird nie geschätzt.
+3. **Veraltete Verfügbarkeit** (über sechs Wochen ohne Bestätigung) gilt als
+   unbekannt, nicht als ihr alter Wert.
+4. **Fehlende Angaben** werden als fehlend ausgewiesen und nie positiv
+   gewertet.
+
+Ein Sonderfall derselben Regel: Ist kein Einsatzgebiet hinterlegt, erzeugt der
+Firmensitz **keine** Regionspunkte im Match. Der Sitz sagt, wo ein Unternehmen
+gemeldet ist — nicht, wo es arbeitet.
+
+### 15.7 Signale
+
+Beobachtungen mit **Pflicht-Quellenangabe** und Konfidenz. Hohe Konfidenz setzt
+eine belegbare Quelle voraus; ein Signal ohne Quelle wird nicht gespeichert.
+Sechs Entscheidungen (geprüft, relevant, kontaktiert, erledigt, verworfen,
+abgelaufen). Ein Signal ändert die Beziehungsrichtung **nie automatisch** — die
+Anwendung schlägt vor, ein Mensch entscheidet.
+
+### 15.8 Match-Engine
+
+Deterministisch, ohne Sprachmodell, mit dokumentierter Gewichtung: Leistung
+30 %, Region 20 %, Verfügbarkeit 20 %, Kapazität 15 %, Nachweise 10 %,
+Datacenter-Erfahrung 5 %. Jede Teilbewertung wird mit Begründung angezeigt, die
+Regelversion (`partner-match-v1`) gespeichert.
+
+Harte Ausschlüsse ohne Score: gesperrt, archiviert, oder reiner Vermittler bei
+verbotener Weitervergabe. Eine menschliche Entscheidung an einem Match
+(Shortlist, abgelehnt) überlebt die Neuberechnung. Einzelheiten:
+`docs/match-score.md`.
+
+### 15.9 Nachunternehmerkette
+
+Selbstreferenzierende Zuordnungen bis sechs Ebenen, als Baum dargestellt.
+Kreise werden in Anwendung und Datenbank verhindert. Eine weitere Ebene ist nur
+möglich, wenn die übergeordnete Zuordnung Untervergabe **ausdrücklich** erlaubt
+— „unbekannt" ist keine Erlaubnis. Ein später gesperrter Partner bleibt in einer
+bestehenden Kette sichtbar; ihn zu entfernen würde die Historie umschreiben.
+
+### 15.10 Import
+
+Derselbe zehnstufige Ablauf wie der Referenzimport, und derselbe Code für
+Testlauf und echten Import. Der Zuordnungsalgorithmus wurde nach
+`src/lib/import/column-matching.ts` gezogen und wird jetzt von beiden Importen
+verwendet, statt in zwei Kopien zu leben.
+
+Was der Import bewusst nicht tut: eine importierte Leistung gilt als *selbst
+angegeben*, eine importierte Verfügbarkeit als unbestätigt,
+Datacenter-Erfahrung höchstens als *selbst angegeben*, und ein Signal entsteht
+nur mit Quellenangabe.
+
+### 15.11 Automatisierte Tests
+
+**vitest, 241 Tests in 11 Dateien** (100 davon neu), dazu ein SQL-Prüfskript mit
+32 Fällen.
+
+| Datei | Umfang |
+|---|---|
+| `tests/partner-companies.test.ts` | Mandantentrennung, Rollen, Firmenverwaltung, Dubletten, Beziehungsrichtung |
+| `tests/partner-matching.test.ts` | Leistungen, Verfügbarkeitsalterung, Nachweise, Match-Engine, Determinismus |
+| `tests/partner-signals-chain.test.ts` | Signale mit Quellenpflicht, Kette, Kreise, Tiefe, gesperrte Historie |
+| `tests/partner-import.test.ts` | CSV/XLSX, Zuordnung, Testlauf, bestätigter Import, Rohdaten, Suche |
+| `supabase/tests/partner-search.sql` | Dieselben Suchfälle gegen die RPC plus alle Datenbank-Guards |
+
+Die letzten beiden prüfen bewusst **dieselben** Erwartungen.
+
+### 15.12 Zwei Befunde aus den Tests
+
+Beide Male hat ein Test eine echte Schwäche gezeigt, nicht nur eine falsche
+Erwartung:
+
+1. **Telefonnummern.** `+49 (0)30 …` und `0049 30 …` sind dieselbe Nummer,
+   verglichen aber ungleich — die Dublettenwarnung hätte genau den Fall
+   verpasst, für den sie existiert. Der Amtsleitungs-Präfix wird jetzt entfernt.
+2. **Region ohne Einsatzgebiet.** Der Firmensitz erzeugte 60 % der
+   Regionspunkte. Aus einer Meldeadresse Abdeckung abzuleiten ist dieselbe Art
+   Vermutung, die das Projekt sonst ablehnt — der Sitz wird jetzt genannt, aber
+   nicht bepunktet.
+
+### 15.13 Supabase
+
+Es liegen weiterhin **keine Zugangsdaten** vor; es wurden keine erfunden. Alle
+13 Migrationen und die 32 Fälle des Partner-Prüfskripts sind gegen ein lokales
+PostgreSQL mit nachgebildetem `auth`-Schema durchlaufen worden, einschließlich
+der Gegenprobe, dass ein Nichtmitglied unter RLS weder über die RPC noch direkt
+etwas sieht.
+
+**Der Storage-Bucket für Dokumente ist nicht eingerichtet.** Die Anwendung
+erfasst deshalb ausschließlich Metadaten und sagt das an jeder Stelle — ein
+vorgetäuschter sicherer Ablageort wäre schlimmer als gar keiner. Was noch zu tun
+ist, steht in `docs/supabase-setup.md`, Abschnitt 3b.
+
+### 15.14 Bekannte offene Punkte
+
+1. **Dateiupload fehlt.** Es werden nur Dokumentmetadaten erfasst; Bucket,
+   Storage-Policies, signierte Links und Schadsoftwareprüfung stehen aus.
+2. **Kein Scheduler.** Ablaufhinweise erscheinen nur in der Anwendung. Es
+   werden keine E-Mails versendet und keine Hintergrundautomatik vorgetäuscht.
+3. **Keine kontrollierte Zusammenführung** von Dubletten. Bewusst: Das
+   Verschmelzen zweier Partnerakten ist nicht umkehrbar. Die Anwendung warnt.
+4. **Kein Geocoding.** Der Radiusfilter arbeitet mit der Angabe des
+   Unternehmens, nicht mit berechneten Entfernungen.
+5. **Die Partnerliste lädt je Tabelle eine Abfrage** für Leistungen, Regionen,
+   Verfügbarkeit, Nachweise und Signale. Ab einigen Tausend Partnern je
+   Organisation wäre eine materialisierte Sicht angebracht.
+6. **RLS ist nicht gegen eine echte Supabase-Instanz getestet** — dieselbe
+   Einschränkung wie in Phase 2.
+7. **Kontakte, Konditionen und Dokumente haben keine Bearbeitungsformulare**,
+   nur Erfassung. Ändern erfolgt über dieselben Endpunkte mit `id`.
+
+### 15.15 Nächste sinnvolle Schritte
+
+1. Supabase-Projekt anlegen, Migrationen anwenden, RLS und Storage prüfen.
+2. Dateiupload mit privatem Bucket und signierten Links nachziehen.
+3. Erst danach Unternehmensradar oder TED/eForms.

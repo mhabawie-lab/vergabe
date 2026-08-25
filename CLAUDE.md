@@ -175,7 +175,50 @@ Diese Regeln gelten dauerhaft, nicht nur für Phase 2.
 
 Details: `docs/data-protection.md`.
 
-## 11. Arbeitsweise
+## 11. Subunternehmer-Radar (Partnerdaten)
+
+Diese Regeln gelten dauerhaft.
+
+- **Es entsteht keine öffentliche Partnerbörse.** Fremde Unternehmen erhalten
+  keine Benutzerkonten, keine öffentlichen Profile, keine Möglichkeit,
+  Gesuche zu veröffentlichen oder Bewerbungen einzureichen, und keinen
+  Einblick in interne Daten. `partner_companies` sind Notizen *einer*
+  Organisation über Dritte.
+- **Beide Beziehungsrichtungen bleiben getrennt.** „Kann für uns arbeiten" und
+  „sucht selbst Subunternehmer" werden nie auseinander abgeleitet. Ein Signal
+  ändert die gespeicherte Richtung nicht automatisch.
+- **Ein Signal ist eine Beobachtung, keine Tatsache.** Es trägt zwingend eine
+  Quellenangabe und eine Konfidenz und wird in der Oberfläche nie als
+  bestätigter Fakt dargestellt.
+- **Nur bestätigte Angaben zählen.** Eine Selbstauskunft wird festgehalten und
+  ist kein Nachweis. Ein abgelaufener oder ungeprüfter Nachweis gilt nicht als
+  erfüllt, und ein Ablaufdatum wird nie geschätzt.
+- **Verfügbarkeit altert.** Ohne Bestätigung innerhalb von sechs Wochen gilt
+  eine Angabe als unbekannt, nicht als ihr alter Wert.
+- **Preise und Dokumente sind besonders vertraulich.** Konditionen erfordern
+  `subcontractors:financial`, Dokumente `subcontractors:documents`. Dokumente
+  liegen in privaten Buckets ohne öffentliche URL; der Zugriff erfolgt nur über
+  kurzlebige signierte Links. Beträge und Notiztexte gehören nie ins
+  `audit_log`.
+- **Interne Bewertungen sind subjektiv** und werden überall als solche
+  gekennzeichnet.
+- **Match Scores sind erklärbare Hilfsmittel, keine Vergabeentscheidung.** Sie
+  sind deterministisch, zeigen jede Teilbewertung mit Begründung und speichern
+  ihre Regelversion. Fehlende Angaben werden als fehlend ausgewiesen, nie als
+  positiv gewertet.
+- **Die Nachunternehmerkette bleibt vollständig.** Ein später gesperrter Partner
+  verschwindet nicht aus einer bestehenden Kette. Kreise und Ketten über sechs
+  Ebenen werden verhindert.
+- **Keine Premiumdaten ohne Lizenz**, keine Orbis-/Moody's-Übernahme, kein
+  automatisches Web-Scraping. Öffentliche Kennungen werden ausschließlich als
+  Quellenhinweis gespeichert.
+- **Echte Partnerdaten gehören nicht ins Repository** — dieselbe Regel wie für
+  Kundendaten.
+
+Details: `docs/subcontractor-radar.md`, `docs/match-score.md`,
+`docs/permissions.md`.
+
+## 12. Arbeitsweise
 
 - Vor größeren Änderungen: `PROJECT_PLAN.md` prüfen und bei Bedarf
   aktualisieren.

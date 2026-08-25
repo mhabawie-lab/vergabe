@@ -39,6 +39,14 @@ export const PERMISSIONS = [
   'references:read',
   'references:write',
   'references:import',
+  // Subunternehmer-Radar. Split into five because the data inside it is not
+  // uniformly sensitive: rates and documents need a narrower circle than the
+  // company list, and one blanket permission would force the widest grant.
+  'subcontractors:read',
+  'subcontractors:write',
+  'subcontractors:documents',
+  'subcontractors:financial',
+  'subcontractors:admin',
   'calculation:read',
   'calculation:write',
   'documents:read',
@@ -60,6 +68,9 @@ const VIEWER_PERMISSIONS: readonly Permission[] = [
   // the organisation is already inside that trust boundary.
   'clients:read',
   'references:read',
+  // Read-only sight of the partner list. Not of rates or documents — those
+  // carry negotiated prices and third-party papers.
+  'subcontractors:read',
 ];
 
 const BID_MANAGER_PERMISSIONS: readonly Permission[] = [
@@ -67,6 +78,8 @@ const BID_MANAGER_PERMISSIONS: readonly Permission[] = [
   'clients:write',
   'references:write',
   'references:import',
+  'subcontractors:write',
+  'subcontractors:documents',
   'tenders:export',
   'favorites:write',
   'search_profiles:write',
@@ -79,6 +92,10 @@ const ORG_ADMIN_PERMISSIONS: readonly Permission[] = [
   ...BID_MANAGER_PERMISSIONS,
   'company:write',
   'members:write',
+  // Negotiated rates and the administration of the radar stay with the
+  // organisation's administrators.
+  'subcontractors:financial',
+  'subcontractors:admin',
 ];
 
 const SUPER_ADMIN_PERMISSIONS: readonly Permission[] = [

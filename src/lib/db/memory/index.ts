@@ -21,6 +21,11 @@ import { toErrorMessage } from '@/lib/errors';
 import { ingestAllActiveSources } from '@/modules/ingestion/pipeline';
 import { MemoryIngestionStore } from './ingestion-store';
 import {
+  createEmptyPartnerTables,
+  MemoryPartnerStore,
+  type PartnerTables,
+} from './partner-store';
+import {
   createEmptyReferenceTables,
   MemoryReferenceStore,
   type ReferenceTables,
@@ -31,9 +36,11 @@ import { createDemoSource, createEmptyTables, type MemoryTables } from './tables
 interface MemoryStoreRegistry {
   tables: MemoryTables;
   referenceTables: ReferenceTables;
+  partnerTables: PartnerTables;
   ingestionStore: MemoryIngestionStore;
   tenderRepository: MemoryTenderRepository;
   referenceStore: MemoryReferenceStore;
+  partnerStore: MemoryPartnerStore;
   /** Memoised so concurrent first requests trigger exactly one pipeline run. */
   bootstrap: Promise<void> | null;
 }
@@ -52,12 +59,18 @@ function createRegistry(): MemoryStoreRegistry {
   // so there is no demo seed for it (phase-2 rule on data protection).
   const referenceTables = createEmptyReferenceTables();
 
+  // Partner data starts empty for the same reason: it names real third-party
+  // companies, so there is no demo seed for it.
+  const partnerTables = createEmptyPartnerTables();
+
   return {
     tables,
     referenceTables,
     ingestionStore: new MemoryIngestionStore(tables),
     tenderRepository: new MemoryTenderRepository(tables),
     referenceStore: new MemoryReferenceStore(referenceTables),
+    partnerTables,
+    partnerStore: new MemoryPartnerStore(partnerTables),
     bootstrap: null,
   };
 }
@@ -111,4 +124,8 @@ export function getMemoryTenderRepository(): MemoryTenderRepository {
 
 export function getMemoryReferenceStore(): MemoryReferenceStore {
   return getRegistry().referenceStore;
+}
+
+export function getMemoryPartnerStore(): MemoryPartnerStore {
+  return getRegistry().partnerStore;
 }

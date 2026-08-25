@@ -21,6 +21,13 @@ export interface NavItem {
 export type NavIconName =
   | 'dashboard'
   | 'customers'
+  | 'partners'
+  | 'signals'
+  | 'needs'
+  | 'assignments'
+  | 'credentials'
+  | 'availability'
+  | 'activities'
   | 'references'
   | 'imports'
   | 'tenders'
@@ -77,6 +84,53 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         href: '/imports/references',
         icon: 'imports',
         permission: 'references:import',
+      },
+    ],
+  },
+  {
+    label: 'Subunternehmer-Radar',
+    items: [
+      {
+        label: 'Übersicht',
+        href: '/subcontractors',
+        icon: 'partners',
+        permission: 'subcontractors:read',
+      },
+      {
+        label: 'Firmen suchen Subunternehmer',
+        href: '/subcontractors/signals',
+        icon: 'signals',
+        permission: 'subcontractors:read',
+      },
+      {
+        label: 'Bedarf & Matches',
+        href: '/subcontractors/needs',
+        icon: 'needs',
+        permission: 'subcontractors:read',
+      },
+      {
+        label: 'Nachweise',
+        href: '/subcontractors/credentials',
+        icon: 'credentials',
+        permission: 'subcontractors:read',
+      },
+      {
+        label: 'Projektzuordnungen',
+        href: '/subcontractors/assignments',
+        icon: 'assignments',
+        permission: 'subcontractors:read',
+      },
+      {
+        label: 'Aktivitäten',
+        href: '/subcontractors/activities',
+        icon: 'activities',
+        permission: 'subcontractors:read',
+      },
+      {
+        label: 'Partnerimport',
+        href: '/subcontractors/import',
+        icon: 'imports',
+        permission: 'subcontractors:write',
       },
     ],
   },

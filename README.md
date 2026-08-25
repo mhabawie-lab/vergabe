@@ -4,8 +4,10 @@ Intelligente Plattform für öffentliche und private Ausschreibungen. Sammelt
 Ausschreibungen aus vielen Quellen, überführt sie in ein gemeinsames internes
 Format, reichert sie an und bewertet ihre Relevanz.
 
-**Aktueller Stand: Phase 2 abgeschlossen** — eigene Kunden, Referenzprojekte
-und deren Import. Als Ausschreibungsquelle ist weiterhin ausschließlich die
+**Aktueller Stand: Phase 3A abgeschlossen** — zusätzlich der interne
+Subunternehmer-Radar (mögliche Nachunternehmer, Signale, Bedarfe, Matches,
+Nachunternehmerkette). Davor: eigene Kunden, Referenzprojekte und deren
+Import. Als Ausschreibungsquelle ist weiterhin ausschließlich die
 DEMO-Quelle angebunden; Live-Quellen (TED / EU eForms, deutsche Bundes-,
 Landes- und Kommunalportale) folgen später.
 
@@ -17,6 +19,10 @@ Anleitungen:
 | Thema | Datei |
 |---|---|
 | Kunden anlegen und pflegen | [`docs/customers.md`](./docs/customers.md) |
+| Subunternehmer-Radar | [`docs/subcontractor-radar.md`](./docs/subcontractor-radar.md) |
+| Match Score | [`docs/match-score.md`](./docs/match-score.md) |
+| Rollen und Berechtigungen | [`docs/permissions.md`](./docs/permissions.md) |
+| Partnerimport | [`docs/partner-import.md`](./docs/partner-import.md) |
 | Referenzdaten importieren | [`docs/reference-import.md`](./docs/reference-import.md) |
 | Datenbank einrichten und prüfen | [`docs/supabase-setup.md`](./docs/supabase-setup.md) |
 | Datenschutz und Datenhaltung | [`docs/data-protection.md`](./docs/data-protection.md) |
@@ -91,12 +97,16 @@ Reihenfolge der Migrationen:
 8. `0008_reference_rls_audit.sql` — RLS und Audit für Referenzdaten
 9. `0009_service_confirmation.sql` — Bestätigungszustand der Leistungsarten
 10. `0010_reference_search_rpc.sql` — serverseitige Referenzsuche
+11. `0011_partner_companies.sql` — Subunternehmer-Radar
+12. `0012_partner_rls_audit.sql` — RLS, Audit und Schutzmechanismen
+13. `0013_partner_search_rpc.sql` — serverseitige Partnersuche
 
 Ohne Supabase-Zugangsdaten lassen sich Schema und Suchfunktion gegen ein
 lokales PostgreSQL prüfen — siehe [`docs/supabase-setup.md`](./docs/supabase-setup.md).
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/reference-search.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/partner-search.sql
 ```
 
 ## Import ausführen
