@@ -1,9 +1,13 @@
 import type { Metadata } from 'next';
 import {
+  Award,
+  Briefcase,
   Building2,
   FileSearch,
   Gavel,
+  MapPin,
   Radar,
+  ShieldCheck,
   Timer,
   Wallet,
 } from 'lucide-react';
@@ -13,7 +17,7 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { LinkButton } from '@/components/ui/button';
 import { EmptyState, PageHeader, PageSection } from '@/components/ui/page';
 import { DemoBadge } from '@/components/ui/badge';
-import { getTenderRepository, isUsingDemoStore } from '@/lib/db';
+import { getReferenceStore, getTenderRepository, isUsingDemoStore } from '@/lib/db';
 import { requireSession } from '@/lib/auth/session';
 import { formatCurrencyCompact, formatNumber } from '@/lib/utils/format';
 import { DeadlineList } from '@/components/dashboard/deadline-list';
@@ -25,12 +29,19 @@ export default async function DashboardPage() {
   const session = await requireSession();
   const repository = await getTenderRepository();
 
-  const [metrics, recent, deadlines, demoOnly] = await Promise.all([
+  const referenceStore = await getReferenceStore();
+
+  const [metrics, recent, deadlines, demoOnly, referenceMetrics] = await Promise.all([
     repository.getDashboardMetrics(session.organization.id),
     repository.listRecent(8),
     repository.listUpcomingDeadlines(6),
     repository.isDemoOnly(),
+    referenceStore.getMetrics(session.organization.id),
   ]);
+
+  // The reference block is only worth its space once there is data behind it.
+  const hasReferenceData =
+    referenceMetrics.activeClients > 0 || referenceMetrics.referenceProjects > 0;
 
   const showDemoNotice = isUsingDemoStore() || demoOnly;
 
@@ -110,6 +121,46 @@ export default async function DashboardPage() {
           />
         </div>
       </PageSection>
+
+      {hasReferenceData && (
+        <PageSection>
+          <h2 className="text-sm font-semibold text-text-primary">Eigene Daten</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <KpiCard
+              label="Aktive Kunden"
+              value={formatNumber(referenceMetrics.activeClients)}
+              hint="Eigene Geschäftskunden mit Status aktiv"
+              Icon={Briefcase}
+              tone="brand"
+              href="/customers"
+            />
+            <KpiCard
+              label="Referenzobjekte"
+              value={formatNumber(referenceMetrics.referenceProjects)}
+              hint="Erfasste Kundenprojekte"
+              Icon={Award}
+              tone="neutral"
+              href="/references"
+            />
+            <KpiCard
+              label="Abgedeckte Standorte"
+              value={formatNumber(referenceMetrics.coveredLocations)}
+              hint="Unterschiedliche Orte in den Referenzen"
+              Icon={MapPin}
+              tone="info"
+              href="/references"
+            />
+            <KpiCard
+              label="Bestätigte Leistungsarten"
+              value={formatNumber(referenceMetrics.confirmedServiceCategories)}
+              hint="Nur bestätigte Angaben zählen als Nachweis"
+              Icon={ShieldCheck}
+              tone="success"
+              href="/references?referenceStatus=confirmed"
+            />
+          </div>
+        </PageSection>
+      )}
 
       {/* Full width: the table carries eight columns and must not be
           squeezed into a side-by-side layout. */}

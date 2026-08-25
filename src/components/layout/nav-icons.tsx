@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import {
+  Briefcase,
   Building2,
   FileSearch,
   FileStack,
@@ -8,7 +9,9 @@ import {
   type LucideIcon,
   Plug,
   Radar,
+  Award,
   ShieldCheck,
+  Upload,
   Sparkles,
   Timer,
   Users,
@@ -17,6 +20,9 @@ import type { NavIconName } from '@/config/navigation';
 
 const ICONS: Record<NavIconName, LucideIcon> = {
   dashboard: Gauge,
+  customers: Briefcase,
+  references: Award,
+  imports: Upload,
   tenders: FileSearch,
   matches: Radar,
   deadlines: Timer,

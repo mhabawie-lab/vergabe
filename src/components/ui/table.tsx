@@ -90,13 +90,17 @@ export function TableCell({
   children,
   className,
   align = 'left',
+  title,
 }: {
   children: ReactNode;
   className?: string;
   align?: 'left' | 'right' | 'center';
+  /** Native tooltip, e.g. to explain an unlabelled raw value. */
+  title?: string;
 }) {
   return (
     <td
+      title={title}
       className={cn(
         'px-4 py-3 align-middle text-text-secondary',
         align === 'right' && 'text-right',

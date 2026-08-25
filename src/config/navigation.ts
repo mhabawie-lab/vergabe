@@ -20,6 +20,9 @@ export interface NavItem {
 
 export type NavIconName =
   | 'dashboard'
+  | 'customers'
+  | 'references'
+  | 'imports'
   | 'tenders'
   | 'matches'
   | 'deadlines'
@@ -52,6 +55,29 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       { label: 'Auftraggeber', href: '/authorities', icon: 'authorities' },
       { label: 'Zuschläge', href: '/awards', icon: 'awards' },
+    ],
+  },
+  {
+    label: 'Eigene Daten',
+    items: [
+      {
+        label: 'Kunden',
+        href: '/customers',
+        icon: 'customers',
+        permission: 'clients:read',
+      },
+      {
+        label: 'Referenzen',
+        href: '/references',
+        icon: 'references',
+        permission: 'references:read',
+      },
+      {
+        label: 'Datenimport',
+        href: '/imports/references',
+        icon: 'imports',
+        permission: 'references:import',
+      },
     ],
   },
   {

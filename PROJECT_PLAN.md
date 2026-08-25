@@ -1,10 +1,19 @@
 # SicherVergabe — Projektplan
 
-> Status: **Phase 1 abgeschlossen** (Stand: August 2026).
-> Das Fundament, das Kerndatenmodell, die vollständige Ingestion-Pipeline mit
-> DEMO-Quelle sowie Dashboard, Ausschreibungssuche und Detailansicht sind
-> implementiert. Der tatsächliche Umsetzungsstand ist in Kapitel 12
-> dokumentiert.
+> Status: **Phase 2 abgeschlossen** (Stand: August 2026).
+> Phase 1 lieferte Fundament, Kerndatenmodell, Ingestion-Pipeline mit
+> DEMO-Quelle sowie Dashboard, Ausschreibungssuche und Detailansicht.
+> Phase 2 ergänzt die mandantenfähige Verwaltung eigener Kunden, Baustellen
+> und Referenzprojekte samt Datenimport. Der tatsächliche Umsetzungsstand ist
+> in Kapitel 12 (Phase 1) und Kapitel 13 (Phase 2) dokumentiert.
+>
+> **Abweichend vom ursprünglichen Plan** behandelt Phase 2 nicht TED/eForms,
+> sondern die eigenen Kunden- und Referenzdaten. Die Anbindung erster
+> Live-Vergabequellen verschiebt sich entsprechend nach hinten.
+>
+> Kapitel 14 beschreibt das geplante **Subunternehmer-Radar** — ein rein
+> internes, mandantenprivates Werkzeug. Ausdrücklich **keine** öffentliche
+> Partnerbörse und kein Marktplatz; noch nicht implementiert.
 >
 > Dieses Dokument beschreibt Architektur, Datenmodell, Connector-Design,
 > Auth/Rollen, API-Struktur, Import-/Normalisierungsprozess,
@@ -512,6 +521,10 @@ Auth-Grundgerüst, Migrationssystem, CI-Grundgerüst, Basis-Layout.
 > Jede Phase liefert ein lauffähiges, testbares Increment. Kein Phasenwechsel
 > ohne Migrationen, Tests und Dokumentationsupdate.
 
+Zusätzlich geplant, Phase noch nicht festgelegt: das **Subunternehmer-Radar**
+(Kapitel 14) — ein internes, mandantenprivates Werkzeug zur Erfassung und
+Prüfung möglicher Nachunternehmer. Keine öffentliche Partnerbörse.
+
 ---
 
 ## 12. Umsetzungsstand
@@ -704,3 +717,431 @@ Stand des letzten Durchlaufs:
 3. RPC-Funktion für die Volltext-Relevanzsortierung.
 4. Suchprofile, Favoriten und Benachrichtigungen als Schreibfunktionen.
 5. Scheduler für den regelmäßigen Import einrichten.
+
+---
+
+## 13. Umsetzungsstand Phase 2 — Kunden, Baustellen und Referenzen
+
+### 13.1 Fachliche Trennung
+
+Eigene Geschäftskunden und öffentliche Auftraggeber sind getrennte Domänen und
+werden nie in einer Tabelle zusammengeführt:
+
+| | `contracting_authorities` | `business_clients` |
+|---|---|---|
+| Wer | öffentliche Vergabestelle | eigener Geschäftskunde |
+| Herkunft | aus Vergabeverfahren importiert | vom Nutzerunternehmen gepflegt |
+| Sichtbarkeit | alle angemeldeten Nutzer | nur die eigene Organisation |
+| Mandant | keiner | `organization_id` |
+
+Analog: `awards` sind fremde Zuschläge, `reference_projects` eigene Projekte.
+
+### 13.2 Neue Tabellen
+
+Zwei Migrationen, fünf Tabellen, sieben Enums:
+
+- `0007_business_clients.sql` — `business_clients`, `reference_projects`,
+  `reference_project_services`, `reference_imports`, `reference_import_rows`
+- `0008_reference_rls_audit.sql` — RLS-Richtlinien, Audit-Trigger,
+  Demo-Schutz-Trigger
+
+Alle Tabellen mit Foreign Keys, Unique Constraints, Indizes, Zeitstempeln,
+Row Level Security und Mandantentrennung über `organization_id`.
+
+Besonderheiten:
+
+- `reference_projects.shift_summary_raw` hält den Originalwert (z. B.
+  `218/146/0`); `shift_values` nur die technische Zerlegung. **Die Bedeutung
+  der Zahlen ist nicht festgelegt** — weder Schema noch Code vergeben
+  Bezeichnungen dafür.
+- `reference_import_rows` speichert `raw_data` unverändert und
+  `normalized_data` getrennt daneben.
+- `reference_project_services.confirmed_by_user` trennt Vorschlag von Fakt.
+- `reject_demo_reference_data()` verhindert Referenzdaten an einer
+  Demo-Organisation.
+- `log_reference_change()` schreibt jede Änderung ins `audit_log` — nur
+  Metadaten, nie den Dateninhalt.
+
+### 13.3 Importfunktion
+
+`/imports/references`, zehnstufiger Ablauf: Datei → Spalten erkennen →
+Zuordnung prüfen → Vorschau → Validierung → Hinweise → Dublettenprüfung →
+Testlauf → ausdrückliche Bestätigung → Ergebnis.
+
+Unterstützt: **CSV**, **XLSX**, **manuelle Einzelerfassung**.
+PDF-Tabellenimport und OCR sind bewusst nicht enthalten.
+
+Testlauf und echter Import laufen durch denselben Code — ein Testlauf zeigt
+daher genau das, was der echte Import täte. Zeilen mit Fehlern werden nie
+importiert, Zeilen mit Warnungen nur auf ausdrücklichen Wunsch.
+
+Erkannte deutsche Spalten: Objekt-Nr., Objektname, Objektart, Ort, Kunde,
+Schichten, Rechnung? — zusätzlich Region, Land, PLZ, Beginn, Ende,
+Beschreibung. Abweichende Überschriften lassen sich manuell zuordnen.
+
+### 13.4 Validierung
+
+Erkannt werden: fehlender Kunde, fehlender Objektname, fehlender Ort,
+ungültige Objekt-Nr., bereits vergebene Objekt-Nr. (in Datei und Datenbank),
+abweichend geschriebene Kundennamen, abweichend geschriebene Orte, ungültiges
+Schichtformat, unbekannter Rechnungsstatus, unlesbare Datumsangaben,
+Projektende vor Projektbeginn und inhaltliche Dubletten.
+
+Durchgängig gilt: Rohdaten werden nie überschrieben, Schreibfehler nur als
+Vorschlag angezeigt, keine automatische Korrektur, unvollständige Ortsangaben
+werden nicht ergänzt.
+
+### 13.5 Vorsichtige Leistungserkennung
+
+Ein Vorschlag entsteht nur bei einem eindeutigen Begriff im Objektnamen:
+`Paramedic` → `paramedic`, `Security` → `security`, `Clean` → `cleaning`,
+`Lager` → `warehouse`. Alles andere bleibt `unknown`.
+
+`Datacenter` ist Objektart und erzeugt keinen Leistungsvorschlag.
+`Bauhelfer` und `Sicherheitsdienst` werden nie automatisch zugewiesen.
+
+Jeder Vorschlag trägt `classification_source = name_rule`, die ausgelöste
+Regel-ID, einen Konfidenzwert und `confirmed_by_user = false`.
+
+### 13.6 Neue Seiten und Routen
+
+| Route | Stand |
+|---|---|
+| `/customers` | Kundenübersicht mit Suche, Status-, Orts- und Leistungsfilter, Sortierung, Paginierung, Dublettenhinweis, Schaltfläche „Kunde anlegen" |
+| `/customers/new` | Kunde anlegen — Vergleichsform-Vorschau, Dublettenrückfrage, `clients:write` |
+| `/customers/[id]` | Stammdaten, Kennzahlen, Standorte, Leistungsarten, Referenzprojekte, Notizen, Schaltfläche „Kunde bearbeiten" |
+| `/customers/[id]/edit` | Kunde bearbeiten — fremde IDs gelten als „nicht gefunden" |
+| `/references` | Referenzübersicht mit acht Filtern und Volltextsuche |
+| `/references/[id]` | Projektübersicht, Standort, Leistungsarten, Zeitraum, Original-Importwerte, Warnungen |
+| `/imports/references` | Importdialog, manuelle Erfassung, Importprotokoll |
+| `/api/v1/references/import/parse` | Datei lesen, Spalten vorschlagen, validieren — schreibt nichts |
+| `/api/v1/references/import/run` | Testlauf oder bestätigter Import |
+| `/api/v1/references/import/template` | Anonymisierte CSV-Vorlage |
+| `/api/v1/references/manual` | Einzelnes Referenzprojekt anlegen |
+| `/api/v1/references/clients` | Kunde anlegen (POST), zweistufige Dublettenbestätigung |
+| `/api/v1/references/clients/[id]` | Kunde bearbeiten (PATCH), getrennte Audit-Einträge je Ereignis |
+
+Sidebar-Gruppe „Eigene Daten" mit Kunden, Referenzen und Datenimport.
+Dashboard um vier Kennzahlen ergänzt (aktive Kunden, Referenzobjekte,
+abgedeckte Standorte, bestätigte Leistungsarten) — nur sichtbar, sobald
+Referenzdaten vorliegen, damit das bestehende Dashboard nicht überladen wird.
+
+### 13.7 Vorbereitung Match-Engine
+
+`buildSearchProfileSuggestions()` erzeugt Suchprofil-Vorschläge aus
+**ausschließlich bestätigten** Leistungsarten, angereichert um Regionen,
+Städte und die Zahl belegender Referenzen. Jeder Vorschlag trägt
+`isProposal: true` und wird nicht als aktives Suchprofil gespeichert.
+
+Eine Kategorie ohne eindeutige Entsprechung in der Branchentaxonomie erzeugt
+keinen Vorschlag. Die eigentliche Match-Engine ist nicht Teil dieser Phase.
+
+### 13.8 Automatisierte Tests
+
+**vitest**, 141 Tests in 7 Dateien, dazu ein SQL-Prüfskript mit 22 Fällen.
+
+| Datei | Umfang |
+|---|---|
+| `tests/csv-parsing.test.ts` | Trennzeichenerkennung, Anführungszeichen, BOM, CRLF, kurze Zeilen |
+| `tests/xlsx-parsing.test.ts` | Echte Arbeitsmappen, Datums- und Zahlenzellen, leere Zellen |
+| `tests/validation.test.ts` | Schichtformat, Spaltenzuordnung, alle Validierungsregeln |
+| `tests/classification.test.ts` | Vorsichtige Leistungserkennung, keine Klassifikation unbekannter Namen |
+| `tests/import-pipeline.test.ts` | Dublettenerkennung, Testlauf ohne Speichern, bestätigter Import, Mandantentrennung, Suchprofil-Vorschläge |
+| `tests/service-confirmation.test.ts` | Alle fünf Entscheidungen, Berechtigungen, Mandantentrennung, Audit-Einträge, Sammelbestätigungsregeln, Auswirkung auf Kennzahlen und Vorschläge |
+| `tests/customer-management.test.ts` | Kundenformular (Pflichtfeld, Länge, Website, Ländercode, Dubletten als Fehler bzw. Warnung, Änderungsdiff), Mandantentrennung, Berechtigungen, Referenzsuche mit allen Filtern, Notizen an allen fünf Entscheidungen |
+| `supabase/tests/reference-search.sql` | Dieselben Suchfälle gegen `search_reference_projects` — Volltext, Filter, Sortier-Whitelist, Seitenzahlen, Mandantentrennung |
+
+Die letzten beiden prüfen bewusst **dieselben** Erwartungen. Ein Test gegen den
+Entwicklungsspeicher allein würde über das Verhalten in der Datenbank nichts
+aussagen.
+
+### 13.9 Supabase
+
+Es liegen **keine Supabase-Zugangsdaten** vor. Es wurden keine erfunden.
+
+Die Migrationen sind vollständig, die Anwendung läuft gegen den lokalen
+Adapter. Für den Betrieb mit Supabase fehlen:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+DATABASE_URL=
+```
+
+Danach: `supabase db push`. Zusätzliche Variablen benötigt Phase 2 nicht.
+
+Schema und Suchfunktion lassen sich **ohne** Supabase-Zugang gegen ein lokales
+PostgreSQL prüfen; der Ablauf steht in `docs/supabase-setup.md`. Alle zehn
+Migrationen und die 22 Fälle des Suchskripts sind auf diesem Weg durchlaufen
+worden, einschließlich einer Gegenprobe, dass ein Nichtmitglied unter RLS kein
+Ergebnis erhält.
+
+Der lokale Adapter ist flüchtig. Die Oberfläche weist auf `/customers` und im
+Importdialog ausdrücklich darauf hin, dass dort keine echten Kundendaten
+erfasst werden sollen.
+
+### 13.10 Bestätigung von Leistungsarten
+
+Nachgereicht und damit die letzte offene Lücke aus Phase 2 geschlossen.
+
+**Migration** `0009_service_confirmation.sql` — rein additiv: neue Spalten
+`confirmation_status`, `confirmed_at`, `confirmed_by`. Bestehende Zeilen werden
+aus `confirmed_by_user` abgeleitet (bereits bestätigte gelten als `manual`,
+weil nicht rekonstruierbar ist, ob sie dem ursprünglichen Vorschlag
+entsprachen). Keine Spalte entfällt, keine Zeile wird gelöscht.
+
+**Fünf Zustände**, weil der Boolean allein zu wenig sagt — ein unangetasteter
+und ein geprüfter Vorschlag sind beide `false`:
+
+| Status | Nachweis? |
+|---|---|
+| `proposed` — automatisch erkannt, ungeprüft | nein |
+| `confirmed` — Vorschlag unverändert bestätigt | **ja** |
+| `manual` — Kategorie von Hand festgelegt und bestätigt | **ja** |
+| `rejected` — Vorschlag verworfen | nein |
+| `unknown` — Leistung nicht bestimmbar | nein |
+
+**Fünf Aktionen** auf `/references/[id]`: bestätigen, Kategorie ändern und
+bestätigen, als unbekannt markieren, verwerfen, Bestätigung zurücksetzen.
+Angezeigt werden Kategorie, Anzeigename, Erkennungsquelle, Konfidenz, Status,
+Zeitpunkt, entscheidende Person und Notiz.
+
+Eine unbestimmte Kategorie lässt sich **nicht** bestätigen — das wäre die
+Behauptung, etwas festgestellt zu haben, was nicht festgestellt wurde. Die
+Schaltfläche wird dort gar nicht erst angeboten.
+
+**Sammelbestätigung** auf `/references` nur bei einheitlicher Kategorie, nur
+für offene Vorschläge, nie für `unknown`, nur mit ausdrücklichem
+Bestätigungskennzeichen. Die Auswahl wird serverseitig frisch gelesen und die
+Regel erneut geprüft.
+
+**Berechtigungen**: `references:write` haben `bid_manager`, `org_admin` und
+`super_admin`; `viewer` sieht dieselben Informationen ohne Bedienelemente.
+Geprüft wird doppelt — `requirePermission` vor dem Lesen und
+Organisationsbindung im Speicher, wobei eine fremde ID als „nicht gefunden"
+zurückkommt, damit ihre Existenz nicht ableitbar ist.
+
+**Audit**: Jede Entscheidung schreibt Organisation, Benutzer, Referenzprojekt,
+alten und neuen Wert, Aktion und Zeitstempel — über den Datenbank-Trigger
+`log_service_confirmation` und zusätzlich über die API, damit beide Speicher
+gleichermaßen nachvollziehbar sind. Die Historie ist auf der Detailseite
+sichtbar.
+
+### 13.10a Notizen an Entscheidungen
+
+Jede der fünf Entscheidungen und die Sammelbestätigung nehmen eine interne
+Notiz entgegen (höchstens 2.000 Zeichen, serverseitig geprüft). Das Feld ist
+mit dem gespeicherten Text vorbelegt, damit eine weitere Entscheidung eine
+vorhandene Begründung nicht stillschweigend löscht; eine leere
+Sammelbestätigungs-Notiz überschreibt nichts.
+
+Im `audit_log` steht nur `hasNote` — nie der Text. Sonst würde das Protokoll zu
+einem zweiten Speicher für Geschäftsdaten (`docs/data-protection.md`, § 6).
+
+### 13.10b Serverseitige Referenzsuche
+
+`0010_reference_search_rpc.sql` legt `public.search_reference_projects` an. Die
+Filter auf Leistungsart und Bestätigungsstand liegen in einer Kindtabelle und
+wurden im Supabase-Adapter bisher auf der bereits geladenen Seite angewendet —
+mit falscher Gesamtzahl und halbleeren Seiten als Folge. Jetzt filtert,
+sortiert und paginiert die Datenbank; die Anwendung liest die Treffer-IDs und
+die Gesamtzahl.
+
+| Anforderung | Umsetzung |
+|---|---|
+| Rechte der aufrufenden Person | `security invoker`, RLS gilt unverändert |
+| keine fremde `organization_id` | zusätzlich `is_org_member()`; fremde Organisation → leeres Ergebnis, kein Fehler |
+| keine dynamische SQL-Sortierung | Whitelist über `case`; ein unbekanntes Sortierfeld fällt auf den Standard zurück |
+| parametrisierte Abfragen | ausschließlich Parameter; der Suchtext wird auf die Vergleichsform reduziert, `%` ist kein Platzhalter |
+| keine Service-Role im Browser | die Funktion wird über den normalen Client aufgerufen, `execute` nur für `authenticated` |
+| stabile Seiten | eindeutiger Nachschlüssel in der Sortierung |
+
+Zwei Hilfsfunktionen bilden `normalizeForComparison` und `normalizeCityName`
+in SQL nach, damit Datenbank und Entwicklungsspeicher dieselbe Suche gleich
+beantworten. Beide Adapter werden an denselben Testfällen gemessen.
+
+### 13.11 Bekannte offene Punkte
+
+1. **Kundenliste lädt alle Projekte der Organisation** für die Aggregate
+   (Projektzahl, Standorte, bestätigte Leistungsarten). Ab einigen Tausend
+   Projekten braucht es eine materialisierte Sicht oder eine zweite Funktion
+   nach dem Muster von `search_reference_projects`.
+2. **RLS ist nicht automatisiert gegen eine echte Supabase-Instanz getestet.**
+   Die Mandantentrennung ist im lokalen Adapter getestet und die Richtlinien
+   wurden gegen ein lokales PostgreSQL mit nachgebildetem `auth`-Schema
+   gegengeprüft — beides ersetzt keinen Lauf gegen das echte Projekt.
+3. **Kundendubletten lassen sich nicht zusammenführen.** Bewusst: Das
+   Verschmelzen zweier Kundenakten ist nicht umkehrbar. Die Anwendung warnt und
+   überlässt die Entscheidung dem Menschen.
+4. **PDF-Import und OCR fehlen** — bewusst außerhalb dieser Phase.
+5. **Referenznachweise als Dokumente** folgen mit der Dokumentenverarbeitung.
+6. **Die Bedeutung der Schichtzahlen** (`218/146/0`) ist weiterhin unbestätigt.
+   Der Originalwert bleibt erhalten; benannt wird er erst, wenn die Bedeutung
+   geklärt ist.
+
+Erledigt gegenüber dem vorherigen Stand: Kundenformular, Notizfeld an allen
+Entscheidungen, serverseitige Filterung im Supabase-Adapter.
+
+### 13.12 Nächste sinnvolle Schritte
+
+1. Supabase-Projekt anlegen, Migrationen anwenden, RLS gegen die echte
+   Datenbank prüfen.
+2. Bedeutung der Schichtzahlen klären und erst danach benennen.
+3. Aggregation der Kundenliste in die Datenbank verlagern.
+4. Erst dann TED/eForms als erste Live-Quelle.
+
+---
+
+## 14. Subunternehmer-Radar (geplant, noch nicht implementiert)
+
+> **Status: Planung.** Es existiert kein Code, kein Schema und keine Route für
+> diesen Bereich. Dieses Kapitel legt die Ausrichtung fest, bevor gebaut wird.
+
+### 14.1 Abgrenzung — was der Bereich ausdrücklich nicht ist
+
+Das Subunternehmer-Radar ist ein **privates internes Werkzeug einer einzigen
+Organisation**. Es ist **keine Partnerbörse und kein Marktplatz**.
+
+Fremde Unternehmen sind in diesem Bereich Datensätze, keine Beteiligten. Sie
+
+- legen **kein Benutzerkonto** an,
+- pflegen **kein öffentliches Partnerprofil**,
+- veröffentlichen **keine Gesuche**,
+- senden **keine Bewerbungen** über die Plattform,
+- sehen **keine internen Daten** — auch nicht die über sie selbst.
+
+Es gibt folglich keine Registrierung für Dritte, keine öffentlich lesbare
+Ansicht, keinen Posteingang und keinen Abgleich zwischen zwei Organisationen.
+Jede spätere Anforderung, die eines dieser fünf Dinge einführen würde, ist eine
+Richtungsänderung und keine Erweiterung — sie gehört zuerst hierher, nicht in
+einen Pull Request.
+
+Nicht zu verwechseln mit dem **Auftraggeber-Radar** (Kapitel 11, Phase 5): Das
+betrachtet öffentliche Vergabestellen aus Vergabeverfahren und ist geteilte
+Referenzdatenbasis. Das Subunternehmer-Radar betrachtet mögliche Auftragnehmer
+der eigenen Organisation und ist vertraulich.
+
+### 14.2 Zweck
+
+- potenzielle Subunternehmer und Nachunternehmer intern erfassen
+- Unternehmen finden, die Aufträge oder Kooperationen suchen
+- Kontakte, Leistungen, Regionen und Verfügbarkeit verwalten
+- Referenzen, Zertifikate, Versicherungen und Qualifikationen prüfen
+- Partner internen Projekten und Baustellen zuordnen
+- Kommunikation und Aktivitäten dokumentieren
+- bevorzugte, zu prüfende und gesperrte Partner unterscheiden
+- Ablaufdaten von Nachweisen überwachen
+- die Nachunternehmerkette nachvollziehbar dokumentieren
+
+### 14.3 Einordnung in die bestehenden Domänen
+
+Das Schema kennt damit drei Arten von Gegenparteien, die nie zusammengeführt
+werden:
+
+| | `contracting_authorities` | `business_clients` | `subcontractors` |
+|---|---|---|---|
+| Wer | öffentliche Vergabestelle | eigener Geschäftskunde | möglicher Nachunternehmer |
+| Richtung | vergibt an uns | wir leisten für ihn | leistet für uns |
+| Herkunft | aus Vergabeverfahren importiert | selbst gepflegt | selbst gepflegt |
+| Sichtbarkeit | alle angemeldeten Nutzer | eigene Organisation | eigene Organisation |
+| Mandant | keiner | `organization_id` | `organization_id` |
+
+Dieselbe Firma kann in mehreren Rollen auftreten — als Kunde und als
+Nachunternehmer. Das sind zwei Datensätze mit unterschiedlicher Rechtsnatur
+und unterschiedlicher Vertraulichkeit, keine zwei Sichten auf einen Datensatz.
+
+### 14.4 Mandantenprivatheit
+
+Der gesamte Bereich ist mandantenprivat. Es gilt dieselbe doppelte Absicherung
+wie für Kunden- und Referenzdaten (`docs/data-protection.md`, Abschnitt 5):
+
+1. Jede Tabelle trägt `organization_id`, Row Level Security lässt nur
+   Mitglieder der Organisation lesen (`is_org_member`) und nur `org_admin`
+   sowie `bid_manager` schreiben (`has_org_role`).
+2. Jede Route prüft die Berechtigung zusätzlich serverseitig.
+
+Vorgesehene Berechtigungen: `subcontractors:read` und `subcontractors:write`.
+Sie sind eigenständig — Lesezugriff auf Kunden bedeutet nicht Lesezugriff auf
+Nachunternehmer, weil Preise und Bewertungen eine andere Vertraulichkeit haben.
+
+Ein Datensatz einer fremden Organisation wird wie überall als **„nicht
+gefunden"** beantwortet, nicht als „keine Berechtigung" — sonst ließe sich die
+Existenz fremder Einträge abfragen.
+
+### 14.5 Öffentliche Daten als Quellenhinweis
+
+Öffentlich verfügbare Unternehmensdaten (etwa ein Unternehmen, das in einem
+Vergabeverfahren als Bieter oder Zuschlagsempfänger auftaucht) dürfen mit einem
+privaten Subunternehmer-Datensatz **verknüpft** werden — als Herkunftsangabe,
+nicht als Inhalt.
+
+- Die Verknüpfung ist eine Referenz (`source_id`, `external_id`, optional
+  `award_id`), keine Kopie und keine Verschmelzung.
+- Öffentliche Felder bleiben in ihrer öffentlichen Tabelle und werden dort
+  gelesen. Sie werden nicht in den privaten Datensatz hineingeschrieben.
+- **Eigene Notizen, Bewertungen, Preise, Konditionen, Kontaktpersonen und
+  Dokumente sind strikt privat** und verlassen die Organisation nie — auch
+  nicht in aggregierter oder anonymisierter Form.
+- Umgekehrt fließt aus einem privaten Datensatz nichts in die öffentlichen
+  Referenzdaten zurück.
+
+### 14.6 Skizze des Datenmodells
+
+Noch nicht festgelegt, aber in dieser Richtung:
+
+| Tabelle | Inhalt |
+|---|---|
+| `subcontractors` | Stammdaten, Vergleichsform des Namens, Status (`preferred`, `review`, `blocked`, `unknown`), interne Notizen |
+| `subcontractor_contacts` | Ansprechpartner mit Rolle und Erreichbarkeit |
+| `subcontractor_services` | angebotene Leistungsarten — dieselbe Enum wie bei den Referenzen, mit derselben Zurückhaltung: unbestätigt ist ein Vorschlag |
+| `subcontractor_regions` | abgedeckte Regionen und Orte |
+| `subcontractor_availability` | Verfügbarkeit und Kapazität, mit Gültigkeitszeitraum |
+| `subcontractor_credentials` | Zertifikate, Versicherungen, Qualifikationen — je mit Ausstellung, **Ablaufdatum** und Prüfvermerk |
+| `subcontractor_documents` | hinterlegte Nachweise (Storage-Verweis, nie im Repository) |
+| `subcontractor_activities` | Kommunikation und Vorgänge, chronologisch |
+| `subcontractor_assignments` | Zuordnung zu eigenen Projekten und Baustellen |
+| `subcontractor_chain_links` | Nachunternehmerkette: wer beauftragt wen, je Projekt |
+| `subcontractor_public_links` | Verknüpfung mit öffentlichen Quelldaten (Abschnitt 14.5) |
+
+Es gelten die bestehenden Regeln: additive Migrationen, `created_at` /
+`updated_at`, RLS auf jeder Tabelle, Indizes zusammen mit den Tabellen,
+Änderungen im `audit_log` — mit Metadaten, nie mit dem Dateninhalt.
+
+### 14.7 Nachweise und Ablaufdaten
+
+Ein abgelaufener Nachweis ist der eigentliche fachliche Zweck der Überwachung.
+Deshalb:
+
+- Jeder Nachweis trägt ein Ablaufdatum oder ausdrücklich **kein** Ablaufdatum;
+  ein unbekanntes Datum wird nicht geraten und nicht aus dem Ausstellungsdatum
+  hochgerechnet.
+- Ohne geprüften, gültigen Nachweis gilt eine Qualifikation als **nicht
+  belegt** — dieselbe Regel wie bei den eigenen Referenzen: Ein zu Unrecht
+  angenommener Nachweis ist schädlicher als ein fehlender, weil er zu einer
+  Beauftragung führt, deren Eignung sich nicht belegen lässt.
+- Ein gesperrter Partner (`blocked`) wird nicht ausgeblendet, sondern sichtbar
+  als gesperrt geführt, mit Grund und Zeitpunkt. Stillschweigend verschwundene
+  Datensätze sind für eine Nachunternehmerkette wertlos.
+
+### 14.8 Bewusst nicht Teil dieses Bereichs
+
+- Selbstregistrierung, Einladungen oder Konten für fremde Unternehmen
+- öffentliche Profile, Suchmaschinen-Sichtbarkeit, Freigabelinks
+- Ausschreiben von Gesuchen, Angebotseinholung oder Bewerbungsverwaltung
+  über die Plattform
+- automatische Anreicherung aus externen Firmendatenbanken ohne Quellenangabe
+  und ohne menschliche Bestätigung
+- Bewertungen, die andere Organisationen sehen können
+- automatisches Zusammenführen ähnlich benannter Firmen
+
+### 14.9 Offene Punkte vor der Umsetzung
+
+1. Phase und Reihenfolge gegenüber den übrigen offenen Themen (Live-Quellen,
+   Dokumentenverarbeitung) sind noch nicht entschieden.
+2. Ob Nachweisdokumente in Supabase Storage liegen und wie lange sie
+   aufbewahrt werden, ist offen — inklusive Löschfristen.
+3. Ob und wie Ablaufwarnungen zugestellt werden (Ansicht, E-Mail, beides),
+   ist offen.
+4. Die Tiefe der Nachunternehmerkette (nur direkte Nachunternehmer oder
+   mehrstufig) ist fachlich zu klären.

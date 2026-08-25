@@ -42,3 +42,13 @@ next-env.d.ts
 
 # keep the documented example env file tracked
 !.env.example
+
+# Private reference imports — real customer data must never enter git.
+# Only the anonymised template under docs/ is tracked.
+/private/
+/imports/
+*.import.csv
+*.import.xlsx
+reference-import-*.csv
+reference-import-*.xlsx
+!docs/reference-import-template.csv

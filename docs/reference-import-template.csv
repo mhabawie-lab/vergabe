@@ -1,0 +1,7 @@
+Objekt-Nr.;Objektname;Objektart;Ort;Kunde;Schichten;Rechnung?
+BSP-0001;Security Musterwerk Nord;Werksgelände;Musterstadt;Beispiel Industrie GmbH (MUSTER);218/146/0;Ja
+BSP-0002;Datacenter Beispielpark;Datacenter;Beispielhausen;Muster Rechenzentrum AG (MUSTER);96/96/0;Nein
+BSP-0003;Cleaning Verwaltungsgebäude Süd;Bürogebäude;Musterhafen;Beispiel Facility GmbH (MUSTER);52/52/0;Teilweise
+BSP-0004;Lager Beispielweg;Logistikhalle;Beispielkreis;Muster Logistik KG (MUSTER);310/210/4;Ja
+BSP-0005;Paramedic Veranstaltungsdienst;Veranstaltungsstätte;Musterstadt;Beispiel Event GmbH (MUSTER);24/24/0;Nein
+BSP-0006;Objekt 47 Nordzufahrt;Baustelle;Beispielstadt;Muster Bau AG (MUSTER);180/120/2;Ja
