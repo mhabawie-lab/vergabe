@@ -1,0 +1,165 @@
+@import 'tailwindcss';
+
+/* Visual system: "Messinstrument, kein Spielautomat". */
+/*
+ * Tailwind v4 resolves `@theme` at build time, so a theme block cannot live
+ * inside a media query. The palette is therefore defined as plain custom
+ * properties on `:root` and mapped through `@theme inline`, which makes every
+ * generated utility reference the variable itself — so the dark override below
+ * simply changes what those utilities resolve to.
+ */
+@theme inline {
+  --color-paper: var(--c-paper);
+  --color-surface: var(--c-surface);
+  --color-surface-sunk: var(--c-surface-sunk);
+  --color-ink: var(--c-ink);
+  --color-ink-soft: var(--c-ink-soft);
+  --color-ink-faint: var(--c-ink-faint);
+  --color-rule: var(--c-rule);
+  --color-rule-strong: var(--c-rule-strong);
+
+  --color-up: var(--c-up);
+  --color-down: var(--c-down);
+  --color-caution: var(--c-caution);
+  --color-accent: var(--c-accent);
+
+  --font-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Public Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+/*
+ * Light is the base: cool graph-paper grey with ink navy — deliberately not the
+ * black-and-neon-green of trading dashboards, because the product's argument is
+ * that these numbers are measurements with error bars, not wins. Gains and
+ * losses use a deep teal and a clay red: readable, never celebratory.
+ */
+:root {
+  --c-paper: #eef1f4;
+  --c-surface: #fafbfc;
+  --c-surface-sunk: #e4e9ee;
+  --c-ink: #12171f;
+  --c-ink-soft: #5a6472;
+  --c-ink-faint: #8d97a4;
+  --c-rule: #c9d2db;
+  --c-rule-strong: #a9b5c1;
+
+  --c-up: #1f7a6b;
+  --c-down: #b14a3b;
+  --c-caution: #966d1f;
+  --c-accent: #2c4a7c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-paper: #10151b;
+    --c-surface: #161c24;
+    --c-surface-sunk: #0b0f14;
+    --c-ink: #e8edf2;
+    --c-ink-soft: #97a3b1;
+    --c-ink-faint: #6b7885;
+    --c-rule: #2a333d;
+    --c-rule-strong: #3d4854;
+
+    --c-up: #4bb8a3;
+    --c-down: #d9776a;
+    --c-caution: #d9a94a;
+    --c-accent: #7ba0d8;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: var(--c-paper);
+  color: var(--c-ink);
+  font-family: var(--font-body, 'Public Sans', system-ui, sans-serif);
+  /* Faint graph-paper grid — the surface the measurements are drawn on. */
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--c-rule) 40%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--c-rule) 40%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Numbers must align in columns; tabular figures everywhere they appear. */
+.tnum {
+  font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.eyebrow {
+  font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, monospace);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-ink-faint);
+}
+
+/*
+ * The signature element: a score plotted on a shared 0–100 axis with an
+ * uncertainty band whose width grows as confidence falls. A wide, soft band is
+ * the interface admitting it does not know.
+ */
+.measure-track {
+  position: relative;
+  height: 1.75rem;
+  background:
+    repeating-linear-gradient(
+      to right,
+      var(--c-rule) 0 1px,
+      transparent 1px 25%
+    );
+  background-color: var(--c-surface-sunk);
+  border-radius: 2px;
+}
+
+.measure-band {
+  position: absolute;
+  top: 0.3125rem;
+  bottom: 0.3125rem;
+  border-radius: 2px;
+  animation: band-in 420ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.measure-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  animation: mark-in 420ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@keyframes band-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes mark-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .measure-band,
+  .measure-mark {
+    animation: none;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
