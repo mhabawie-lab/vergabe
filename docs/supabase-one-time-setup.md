@@ -9,6 +9,10 @@ angewendet zu werden.
 Reihenfolge einhalten. Nichts hier verlangt, ein bestehendes Projekt
 zurückzusetzen.
 
+> **Für das Projekt `SicherVergabe` sind die Schritte 1 bis 9 bereits
+> ausgeführt.** Was dabei herauskam, steht in `docs/live-verification.md`.
+> Diese Anleitung bleibt für ein weiteres Projekt (Staging) gültig.
+
 ---
 
 ## 1. Projekt anlegen

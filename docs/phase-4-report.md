@@ -120,26 +120,37 @@ Farbschema, keine Konsolenfehler.
 `docs/rls-security.md`, `docs/private-storage.md`, `docs/document-upload.md`,
 `docs/deployment.md` und dieser Bericht.
 
-## 9. Was ohne Zugangsdaten nicht möglich war
+## 9. Nachtrag: Anwendung auf das echte Projekt
 
-1. Kein Lauf gegen ein echtes Supabase-Projekt: kein erreichbarer
-   Docker-Daemon, keine Projekt-Zugangsdaten. Geprüft wurde gegen ein lokales
-   PostgreSQL mit Plattform-Stellvertretern
-   (`supabase/setup/local-platform-shim.sql`). Nicht abgedeckt: die echte
-   Storage-API, die JWT-Auswertung der Plattform, die Durchsetzung der
-   Bucket-Limits.
-2. `src/types/database.ts` wurde **nicht** erzeugt. Der Befehl steht in
-   `docs/database-migrations.md` § 5; erfundene Typen wären eine ungeprüfte
-   Zusicherung.
-3. Kein Virenscanner angebunden.
-4. Keine Einladungsfunktion für weitere Mitglieder.
-5. Keine Dokumentoberfläche am Kunden (`business_client`) — Datenmodell und
-   API tragen sie bereits.
+Nach Abschluss der Phase wurden Zugangsdaten bereitgestellt und die
+Infrastruktur auf dem echten Supabase-Projekt eingerichtet. Details:
+`docs/live-verification.md`.
 
-Die vollständige manuelle Checkliste steht in
-`docs/supabase-one-time-setup.md`.
+Kurz: alle 16 Migrationen angewendet, 41 Tabellen mit RLS, drei private
+Buckets, zwölf Storage-Policies, alle vier SQL-Suiten gegen die Instanz
+bestanden, Datenbanktypen erzeugt (`src/types/database.ts`), erste
+Organisation über das Onboarding angelegt, Upload und signierter Download mit
+echter Benutzersitzung geprüft, Selbstregistrierung deaktiviert.
 
-## 10. Nicht begonnen
+Dabei gefunden und behoben: `/api/health` wurde von der Middleware zur
+Anmeldung umgeleitet, sobald Supabase konfiguriert war — eine
+Deployment-Probe hat keine Sitzung und hätte jede Prüfung als Ausfall
+gemeldet.
+
+## 10. Weiterhin offen
+
+1. **Kein Virenscanner angebunden.** `scan_status` bleibt `not_scanned`.
+2. **Keine Einladungsfunktion** für weitere Mitglieder; bis dahin über das
+   Supabase-Dashboard.
+3. **Keine Dokumentoberfläche am Kunden** (`business_client`) — Datenmodell
+   und API tragen sie bereits.
+4. **Kein Browserlauf gegen die echte Instanz**: der Browser dieser
+   Arbeitsumgebung hat keinen Netzzugang nach außen. Die Oberfläche ist gegen
+   den lokalen Speicher geprüft, die Server-, Datenbank- und Storage-Pfade
+   gegen das echte Projekt.
+5. **Kein automatisches Deployment und keine Migration aus CI heraus.**
+
+## 11. Nicht begonnen
 
 Unternehmensradar, Orbis, GLEIF, TED/eForms, Handelsregister, Vergabeportale
 und automatische Websuche — wie vereinbart.

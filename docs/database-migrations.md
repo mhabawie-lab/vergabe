@@ -106,11 +106,16 @@ npm run supabase:types      # supabase gen types typescript --local
 ```
 
 Der Befehl braucht eine laufende lokale Supabase-Instanz (und damit Docker)
-oder ein verknüpftes Projekt. **Solange keine Instanz erreichbar ist, wird
-`src/types/database.ts` nicht erzeugt** — erfundene Typen wären schlimmer als
-keine: sie sähen wie eine Zusicherung aus, die niemand geprüft hat. Bis dahin
-beschreiben die Typen in `src/types/` die Anwendungssicht, und die Adapter
-mappen die Zeilen ausdrücklich.
+oder ein verknüpftes Projekt. Gegen ein gehostetes Projekt:
+
+```bash
+npx supabase gen types typescript --project-id <ref> > src/types/database.ts
+```
+
+`src/types/database.ts` ist aus dem angewendeten Schema erzeugt und wird nach
+jeder weiteren Migration neu erzeugt. Von Hand geschriebene Typen hätten dort
+nichts zu suchen: sie sähen wie eine Zusicherung aus, die niemand geprüft
+hat.
 
 ---
 

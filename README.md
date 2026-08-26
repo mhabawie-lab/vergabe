@@ -34,6 +34,7 @@ Anleitungen:
 | Dokumente hochladen | [`docs/document-upload.md`](./docs/document-upload.md) |
 | Deployment | [`docs/deployment.md`](./docs/deployment.md) |
 | Infrastruktur-Audit | [`docs/infrastructure-audit.md`](./docs/infrastructure-audit.md) |
+| Einrichtung auf dem echten Projekt | [`docs/live-verification.md`](./docs/live-verification.md) |
 | Datenschutz und Datenhaltung | [`docs/data-protection.md`](./docs/data-protection.md) |
 | Datenbankschema | [`docs/database-schema.md`](./docs/database-schema.md) |
 
