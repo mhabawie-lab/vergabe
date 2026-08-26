@@ -5,14 +5,29 @@ Regel: **jede** Schemaänderung ist eine Migration in `supabase/migrations/`;
 Änderungen im Supabase-Dashboard, die nicht als Migration existieren, sind
 nicht zulässig (`CLAUDE.md` § 7).
 
+Verwandte Dokumente:
+
+* Einmalige Einrichtung eines echten Projekts: `docs/supabase-one-time-setup.md`
+* Migrationsregeln und statische Prüfung: `docs/database-migrations.md`
+* Row Level Security: `docs/rls-security.md`
+* Privater Dokumentenspeicher: `docs/private-storage.md`
+* Umgebungsvariablen: `docs/environment-variables.md`
+
 ---
 
 ## 1. Mit Supabase
 
+Die CLI ist eine Projektabhängigkeit; eine globale Installation ist nicht
+nötig und nicht vorausgesetzt.
+
 ```bash
-supabase link --project-ref <projekt-ref>
-supabase db push
+npx supabase link --project-ref <projekt-ref>
+npx supabase migration list      # Abgleich, ändert nichts
+npx supabase db push
 ```
+
+`supabase db reset` verwirft die Datenbank und ist ausschließlich für die
+lokale Instanz gedacht — nie gegen ein entferntes Projekt.
 
 `db push` wendet alle Dateien in `supabase/migrations/` in Dateinamen­reihenfolge
 an. Alle Migrationen sind additiv: sie legen an und erweitern, sie löschen keine
@@ -38,44 +53,35 @@ pg_ctl -D /var/tmp/sv/data -o "-p 55432" -l /var/tmp/sv/pg.log start
 createdb -h localhost -p 55432 -U postgres sv
 ```
 
-```sql
--- 2. Plattform-Stellvertreter anlegen (nur lokal!)
--- Rollen gelten clusterweit: beim zweiten Datenbankaufbau existieren sie
--- bereits, deshalb der Block statt eines blanken CREATE ROLE.
-do $$ begin
-  if not exists (select 1 from pg_roles where rolname = 'anon')
-    then create role anon nologin; end if;
-  if not exists (select 1 from pg_roles where rolname = 'authenticated')
-    then create role authenticated nologin; end if;
-  if not exists (select 1 from pg_roles where rolname = 'service_role')
-    then create role service_role nologin; end if;
-end $$;
-
-create schema if not exists auth;
-create table if not exists auth.users (
-  id uuid primary key,
-  email text,
-  raw_user_meta_data jsonb default '{}'::jsonb
-);
-create or replace function auth.uid() returns uuid
-language sql stable as $$
-  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
-$$;
-
-grant usage on schema public to authenticated;
-grant select on all tables in schema public to authenticated;
+```bash
+# 2. Plattform-Stellvertreter anlegen (nur lokal!)
+psql "postgresql://postgres@localhost:55432/sv" \
+  -v ON_ERROR_STOP=1 -f supabase/setup/local-platform-shim.sql
 ```
+
+Die Datei legt `auth.users`, `auth.uid()`, die Rollen `anon`,
+`authenticated` und `service_role` sowie ein minimales `storage`-Schema an. Sie
+ist idempotent — Rollen gelten clusterweit und existieren beim zweiten
+Datenbankaufbau bereits. Denselben Stellvertreter verwendet die CI.
 
 ```bash
 # 3. Migrationen der Reihe nach anwenden
 for f in supabase/migrations/*.sql; do
   psql "postgresql://postgres@localhost:55432/sv" -v ON_ERROR_STOP=1 -f "$f"
 done
+
+# 4. Alle SQL-Tests laufen lassen
+DATABASE_URL="postgresql://postgres@localhost:55432/sv" npm run db:test
 ```
 
 Dieser Stellvertreter dient ausschließlich der lokalen Prüfung. Er gehört
 niemals in eine Umgebung mit echten Daten: `auth.uid()` liest hier eine frei
 setzbare Sitzungsvariable.
+
+Er ist nötig, weil in dieser Entwicklungsumgebung kein Docker-Daemon erreichbar
+ist und `supabase start` damit keine lokale Instanz hochfährt. Was er nicht
+abbildet: die echte Storage-API, die JWT-Auswertung der Plattform und die
+Durchsetzung der Bucket-Limits.
 
 ---
 
@@ -141,40 +147,51 @@ prozessinternen Speicher.
 
 ---
 
-## 3b. Privater Storage-Bucket (noch einzurichten)
+## 3b. Privater Dokumentenspeicher
 
-Für Nachweisdokumente ist ein **privater** Bucket vorgesehen:
+`0015_document_storage.sql` legt drei **private** Buckets an
+(`reference-documents`, `partner-documents`, `organization-documents`), je
+25 MB, sechs erlaubte MIME-Typen, dazu zwölf Storage-Policies auf
+`storage.objects`. Der Objektpfad beginnt mit der `organization_id`.
 
+```bash
+psql "postgresql://postgres@localhost:55432/sv" \
+  -v ON_ERROR_STOP=1 -f supabase/tests/storage-and-rls.sql
 ```
-Name:            partner-documents
-Öffentlich:      nein
-Dateigrößen-Limit: nach Bedarf, empfohlen 20 MB
+
+29 Prüfungen: Mandantentrennung bei Dokumenten, Rechte je Eigentümertyp,
+Pfadauswertung, Ablehnung fremder Ordner, `anon` sieht nichts. Details:
+`docs/private-storage.md` und `docs/rls-security.md`.
+
+Ein Virenscanner ist **nicht** angebunden: `scan_status` bleibt
+`not_scanned`, und die Oberfläche sagt „nicht geprüft" statt „sicher".
+
+---
+
+## 3c. Onboarding prüfen
+
+```bash
+psql "postgresql://postgres@localhost:55432/sv" \
+  -v ON_ERROR_STOP=1 -f supabase/tests/onboarding.sql
 ```
 
-Was gegen ein echtes Supabase-Projekt noch zu tun ist:
-
-1. Bucket anlegen, öffentlichen Zugriff **deaktivieren**.
-2. Storage-Policies je Organisation setzen — der Pfad beginnt mit der
-   `organization_id`.
-3. Den Upload serverseitig ergänzen und Downloads ausschließlich über
-   `createSignedUrl` mit kurzer Laufzeit ausliefern.
-4. Eine Schadsoftwareprüfung anbinden und `scan_status` erst dann von
-   `not_scanned` wegbewegen.
-
-**Bis dahin erfasst die Anwendung ausschließlich Metadaten und sagt das auch.**
-Ein vorgetäuschter sicherer Ablageort wäre schlimmer als gar keiner.
+22 Prüfungen rund um `create_first_organization`: erster Benutzer wird
+`org_admin`, zweiter Aufruf abgewiesen, ungültige Kennungen abgewiesen, keine
+verwaisten Organisationen, Auditeintrag ohne Inhalte, `anon` ohne
+Ausführungsrecht.
 
 ---
 
 ## 4. Was noch offen ist
 
-- Die RLS-Richtlinien werden bisher **nicht** automatisiert gegen eine echte
-  Supabase-Instanz getestet. Die Prüfung oben ist manuell.
+- Die RLS-Richtlinien laufen automatisiert, aber gegen ein lokales PostgreSQL
+  mit Plattform-Stellvertretern — **nicht** gegen eine echte Supabase-Instanz.
 - Die Kundenliste (`/customers`) aggregiert weiterhin in der Anwendung statt in
   SQL. Das ist bei einigen Tausend Zeilen je Organisation unkritisch, bleibt
   aber als Punkt für später vermerkt (`PROJECT_PLAN.md`, § 13.11).
-- Der Storage-Bucket für Partnerdokumente ist **nicht** eingerichtet; es werden
-  nur Metadaten erfasst (Abschnitt 3b).
+- `src/types/database.ts` existiert nicht: `supabase gen types` braucht eine
+  erreichbare Instanz, und erfundene Typen wären eine ungeprüfte Zusicherung.
+- Es ist kein Virenscanner angebunden (Abschnitt 3b).
 - Die Partnerliste lädt für die Spalten „Leistungen", „Regionen" und
   „Nachweise" je eine Abfrage pro Tabelle. Das ist bei einigen Tausend Partnern
   je Organisation unkritisch; darüber hinaus wäre eine materialisierte Sicht

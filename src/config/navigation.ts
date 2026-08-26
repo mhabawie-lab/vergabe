@@ -40,7 +40,8 @@ export type NavIconName =
   | 'company'
   | 'ai'
   | 'sources'
-  | 'admin';
+  | 'admin'
+  | 'infrastructure';
 
 export interface NavSection {
   label: string;
@@ -173,6 +174,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Administration',
         href: '/admin',
         icon: 'admin',
+        permission: 'members:read',
+      },
+      {
+        label: 'Infrastruktur',
+        href: '/administration/infrastructure',
+        icon: 'infrastructure',
         permission: 'members:read',
       },
     ],

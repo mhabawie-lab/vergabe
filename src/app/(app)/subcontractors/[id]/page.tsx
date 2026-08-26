@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { AlertTriangle, Lock } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { LinkButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -33,6 +33,7 @@ import {
   type PartnerTab,
 } from '@/components/partners/detail-tabs';
 import { ChainTree } from '@/components/partners/chain-tree';
+import { DocumentPanel } from '@/components/documents/document-panel';
 import {
   ActivityForm,
   AssignmentForm,
@@ -88,6 +89,9 @@ export default async function PartnerDetailPage({ params, searchParams }: PagePr
   const canEdit = hasPermission(session, 'subcontractors:write');
   const canSeeRates = hasPermission(session, 'subcontractors:financial');
   const canSeeDocuments = hasPermission(session, 'subcontractors:documents');
+  // Deleting a third party's paperwork destroys evidence, so it sits behind
+  // the narrower administrative permission. Archiving needs only :documents.
+  const canAdministerPartners = hasPermission(session, 'subcontractors:admin');
 
   const { id } = await params;
   const { tab: rawTab } = await searchParams;
@@ -103,7 +107,6 @@ export default async function PartnerDetailPage({ params, searchParams }: PagePr
     regions,
     availability,
     qualifications,
-    documents,
     activities,
     signals,
     credentialSummary,
@@ -637,52 +640,14 @@ export default async function PartnerDetailPage({ params, searchParams }: PagePr
         )}
 
         {tab === 'documents' && canSeeDocuments && (
-          <CardBody className="space-y-3">
-            <div className="rounded-lg border border-border-subtle bg-surface-sunken p-3.5">
-              <p className="flex items-center gap-2 text-xs font-medium text-text-secondary">
-                <Lock className="size-3.5" aria-hidden />
-                Privat abgelegt
-              </p>
-              <p className="mt-1 text-[11px] leading-snug text-text-muted">
-                Dokumente liegen in einem privaten Speicher ohne öffentliche URL. In dieser
-                Phase werden ausschließlich Metadaten erfasst — es wird kein Dateiinhalt
-                hochgeladen und keine Schadsoftwareprüfung durchgeführt.
-              </p>
-            </div>
-            <TableContainer>
-              <Table className="min-w-[48rem]">
-                <TableHead>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHeaderCell>Datei</TableHeaderCell>
-                    <TableHeaderCell>Art</TableHeaderCell>
-                    <TableHeaderCell>Gültig bis</TableHeaderCell>
-                    <TableHeaderCell>Prüfstatus</TableHeaderCell>
-                    <TableHeaderCell>Scan</TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {documents.length === 0 ? (
-                    <TableEmpty colSpan={5}>Keine Dokumente hinterlegt.</TableEmpty>
-                  ) : (
-                    documents.map((document) => (
-                      <TableRow key={document.id}>
-                        <TableCell className="text-xs">{document.fileName}</TableCell>
-                        <TableCell className="text-xs">
-                          {CREDENTIAL_TYPE_LABELS[document.credentialType]}
-                        </TableCell>
-                        <TableCell className="tabular text-xs">
-                          {formatDate(document.validUntil)}
-                        </TableCell>
-                        <TableCell className="text-xs">{document.reviewStatus}</TableCell>
-                        <TableCell>
-                          <Badge tone="neutral">Nicht geprüft</Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+          <CardBody>
+            <DocumentPanel
+              ownerType="partner_company"
+              ownerId={company.id}
+              canWrite={canSeeDocuments}
+              canDelete={canAdministerPartners}
+              title="Nachweise dieses Unternehmens"
+            />
           </CardBody>
         )}
 

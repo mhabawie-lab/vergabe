@@ -8,6 +8,7 @@ import {
   FileBadge,
   Handshake,
   Network,
+  ServerCog,
   FileSearch,
   FileStack,
   Gauge,
@@ -47,6 +48,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   ai: Sparkles,
   sources: Plug,
   admin: ShieldCheck,
+  infrastructure: ServerCog,
 };
 
 /**

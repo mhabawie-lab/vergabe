@@ -11,7 +11,7 @@
 import 'server-only';
 
 import { redirect } from 'next/navigation';
-import { hasSupabaseClientConfig } from '@/lib/env';
+import { resolveBackend } from '@/lib/env';
 import { ForbiddenError } from '@/lib/errors';
 import { logger } from '@/lib/logging';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -105,21 +105,44 @@ interface MembershipRow {
 }
 
 /**
+ * What the request knows about the caller.
+ *
+ * Three states, not two. A signed-in user without an organisation used to be
+ * indistinguishable from an anonymous one, which sent them back to the login
+ * screen they had just passed. `onboarding` is that missing state.
+ */
+export type AuthState =
+  | { kind: 'anonymous' }
+  | { kind: 'onboarding'; profile: Profile }
+  | { kind: 'session'; session: SessionContext };
+
+/**
  * Resolves the current session, or null when nobody is signed in.
  *
  * A signed-in user without an organisation membership also yields null: the
- * application is tenant-scoped, so there is nothing they could act on.
+ * application is tenant-scoped, so there is nothing they could act on. Use
+ * `getAuthState()` where that difference matters.
  */
 export async function getSessionContext(): Promise<SessionContext | null> {
-  if (!hasSupabaseClientConfig()) {
-    return DEMO_SESSION;
+  const state = await getAuthState();
+  return state.kind === 'session' ? state.session : null;
+}
+
+/** Resolves the full three-state view of the caller. */
+export async function getAuthState(): Promise<AuthState> {
+  // Follows the resolved backend rather than "is Supabase configured": with
+  // DATA_BACKEND=memory the app is deliberately offline, and with
+  // DATA_BACKEND=supabase a missing configuration must raise, not hand out a
+  // super-admin session.
+  if (resolveBackend().backend === 'memory') {
+    return { kind: 'session', session: DEMO_SESSION };
   }
 
   const client = await createServerSupabaseClient();
   const { data: userData, error: userError } = await client.auth.getUser();
 
   if (userError !== null || userData.user === null) {
-    return null;
+    return { kind: 'anonymous' };
   }
 
   const [profileResult, membershipResult] = await Promise.all([
@@ -136,12 +159,30 @@ export async function getSessionContext(): Promise<SessionContext | null> {
   const profileRow = (profileResult.data ?? null) as ProfileRow | null;
   const membershipRow = (membershipResult.data ?? null) as MembershipRow | null;
 
-  if (profileRow === null || membershipRow === null || membershipRow.organizations === null) {
-    logger.warn('Angemeldeter Benutzer ohne Profil oder Organisationszuordnung', {
+  if (profileRow === null) {
+    // A profile is created by a trigger on auth.users, so its absence is a
+    // fault, not a state to onboard out of.
+    logger.warn('Angemeldeter Benutzer ohne Profil', {
       scope: 'auth',
       userId: userData.user.id,
     });
-    return null;
+    return { kind: 'anonymous' };
+  }
+
+  const profile: Profile = {
+    id: profileRow.id,
+    email: profileRow.email,
+    fullName: profileRow.full_name,
+    jobTitle: profileRow.job_title,
+    phone: profileRow.phone,
+    isPlatformAdmin: profileRow.is_platform_admin,
+    createdAt: profileRow.created_at,
+    updatedAt: profileRow.updated_at,
+  };
+
+  if (membershipRow === null || membershipRow.organizations === null) {
+    // Signed in, but belongs nowhere yet: the one state onboarding exists for.
+    return { kind: 'onboarding', profile };
   }
 
   // Platform staff always act as super_admin, whatever the membership says.
@@ -152,17 +193,8 @@ export async function getSessionContext(): Promise<SessionContext | null> {
 
   const organizationRow = membershipRow.organizations;
 
-  return {
-    profile: {
-      id: profileRow.id,
-      email: profileRow.email,
-      fullName: profileRow.full_name,
-      jobTitle: profileRow.job_title,
-      phone: profileRow.phone,
-      isPlatformAdmin: profileRow.is_platform_admin,
-      createdAt: profileRow.created_at,
-      updatedAt: profileRow.updated_at,
-    },
+  const session: SessionContext = {
+    profile,
     organization: {
       id: organizationRow.id,
       name: organizationRow.name,
@@ -184,15 +216,25 @@ export async function getSessionContext(): Promise<SessionContext | null> {
     role,
     permissions: ROLE_PERMISSIONS[role],
   };
+
+  return { kind: 'session', session };
 }
 
-/** Resolves the session or redirects to the login screen. */
+/**
+ * Resolves the session, or redirects.
+ *
+ * Anonymous callers go to the login screen, signed-in callers without an
+ * organisation to onboarding — never back to a screen they just passed.
+ */
 export async function requireSession(): Promise<SessionContext> {
-  const session = await getSessionContext();
-  if (session === null) {
+  const state = await getAuthState();
+  if (state.kind === 'anonymous') {
     redirect('/login');
   }
-  return session;
+  if (state.kind === 'onboarding') {
+    redirect('/onboarding');
+  }
+  return state.session;
 }
 
 export function hasPermission(

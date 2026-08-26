@@ -218,7 +218,51 @@ Diese Regeln gelten dauerhaft.
 Details: `docs/subcontractor-radar.md`, `docs/match-score.md`,
 `docs/permissions.md`.
 
-## 12. Arbeitsweise
+## 12. Infrastruktur, Umgebung und Dokumentenspeicher
+
+Diese Regeln gelten dauerhaft.
+
+- **Kein stiller Rückfall auf einen anderen Datenspeicher.** `DATA_BACKEND`
+  wählt ausdrücklich zwischen `supabase` und `memory`. Fehlt bei `supabase` die
+  Konfiguration, ist das ein Fehler; `memory` ist in der Produktion unzulässig.
+  Ein Supabase-Fehler wird als Fehler sichtbar — nie als leeres Ergebnis, nie
+  durch ein `catch`, das den Speicher wechselt.
+- **Geheimnisse sind an der Import-Zeile erkennbar.** Browsersichere Werte
+  stehen in `src/lib/env/public.ts`, Geheimnisse ausschließlich im
+  `server-only`-Modul. Der Secret Key erreicht nie eine Client-Komponente, nie
+  eine API-Antwort, nie ein Log.
+- **Uploads und Downloads laufen mit der Sitzung der angemeldeten Person**,
+  nicht mit dem Secret Key. So gelten die Storage-Policies auch dann, wenn die
+  Anwendung sich irrt.
+- **Dokumente liegen ausschließlich in privaten Buckets.** Es gibt keine
+  öffentliche Objekt-URL. Downloads laufen über kurzlebige signierte Links, die
+  nirgends gespeichert werden — nicht in der Datenbank, nicht im `audit_log`,
+  nicht im Log.
+- **Der Objektpfad beginnt mit der `organization_id`.** Darauf setzen die
+  Storage-Policies auf. Ein Objekt ohne dieses Präfix ist für niemanden lesbar.
+- **Keine vorgetäuschte Schadsoftwareprüfung.** Solange kein Scanner
+  angebunden ist, bleibt `scan_status` auf `not_scanned` und die Oberfläche
+  sagt „nicht geprüft" — nie „geprüft" oder „sicher".
+- **Der Originalname einer Datei bleibt erhalten.** Der bereinigte Name ist
+  der Objektschlüssel, keine Umbenennung.
+- **Archivieren ist der Normalfall, Löschen die Ausnahme** und braucht eine
+  eigene, engere Berechtigung.
+- **Keine öffentliche Selbstregistrierung.** Das Onboarding legt genau eine
+  erste Organisation für einen bereits angemeldeten Benutzer an; fremde Firmen
+  bekommen keine Konten (§ 11).
+- **Die Organisation stammt aus der Sitzung, nie aus dem Request.** Eine fremde
+  Kennung erscheint als „nicht gefunden", nicht als „kein Zugriff".
+- **Migrationen werden nie nachträglich umgeschrieben.** Ein Fehler in einer
+  bereits veröffentlichten Migration wird durch eine neue, additive Migration
+  korrigiert. `supabase db reset` läuft nie gegen ein entferntes Projekt.
+- **Jede Datenbankfunktion setzt `search_path`**; `security definer` nur mit
+  hinterlegter Begründung in `scripts/validate-migrations.mjs`.
+- **CI kommt ohne Zugangsdaten aus** und wendet keine Migration auf eine
+  entfernte Datenbank an. Ein Pull Request verändert kein Schema.
+
+---
+
+## 13. Arbeitsweise
 
 - Vor größeren Änderungen: `PROJECT_PLAN.md` prüfen und bei Bedarf
   aktualisieren.
@@ -235,8 +279,17 @@ Werte gehören in `.env.local` (lokal) bzw. in die Deployment-Umgebung —
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=      # nur serverseitig
-DATABASE_URL=                    # nur serverseitig
-ANTHROPIC_API_KEY=               # nur serverseitig, KI-Analyse
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+SUPABASE_SECRET_KEY=                  # nur serverseitig, umgeht RLS
+SUPABASE_PROJECT_REF=                 # nur serverseitig
+DATABASE_URL=                         # nur serverseitig
+DATA_BACKEND=                         # supabase | memory
+STORAGE_SIGNED_URL_TTL_SECONDS=       # Standard 300
+INGESTION_TRIGGER_SECRET=             # nur serverseitig
+ANTHROPIC_API_KEY=                    # nur serverseitig, KI-Analyse
 ```
+
+Die früheren Namen `NEXT_PUBLIC_SUPABASE_ANON_KEY` und
+`SUPABASE_SERVICE_ROLE_KEY` werden als Übergang weiter gelesen — mit einer
+Warnung, die nur den Namen nennt, nie den Wert. Vollständige Liste:
+`docs/environment-variables.md`.
