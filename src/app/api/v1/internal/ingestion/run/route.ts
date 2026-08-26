@@ -16,7 +16,7 @@ export const maxDuration = 300;
  *
  * Triggers the ingestion pipeline. Intended for a scheduler, not for
  * browsers: it authenticates with a shared secret and is excluded from the
- * session middleware.
+ * session proxy (src/proxy.ts).
  *
  *   Authorization: Bearer <INGESTION_TRIGGER_SECRET>
  *   Body (optional): { "sourceKey": "demo" }
