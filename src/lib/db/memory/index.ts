@@ -21,6 +21,11 @@ import { toErrorMessage } from '@/lib/errors';
 import { ingestAllActiveSources } from '@/modules/ingestion/pipeline';
 import { MemoryIngestionStore } from './ingestion-store';
 import {
+  createEmptyDocumentTables,
+  MemoryDocumentStore,
+  type DocumentTables,
+} from './document-store';
+import {
   createEmptyPartnerTables,
   MemoryPartnerStore,
   type PartnerTables,
@@ -37,10 +42,12 @@ interface MemoryStoreRegistry {
   tables: MemoryTables;
   referenceTables: ReferenceTables;
   partnerTables: PartnerTables;
+  documentTables: DocumentTables;
   ingestionStore: MemoryIngestionStore;
   tenderRepository: MemoryTenderRepository;
   referenceStore: MemoryReferenceStore;
   partnerStore: MemoryPartnerStore;
+  documentStore: MemoryDocumentStore;
   /** Memoised so concurrent first requests trigger exactly one pipeline run. */
   bootstrap: Promise<void> | null;
 }
@@ -63,6 +70,9 @@ function createRegistry(): MemoryStoreRegistry {
   // companies, so there is no demo seed for it.
   const partnerTables = createEmptyPartnerTables();
 
+  // Documents never get a demo seed either: they are third-party paperwork.
+  const documentTables = createEmptyDocumentTables();
+
   return {
     tables,
     referenceTables,
@@ -71,6 +81,29 @@ function createRegistry(): MemoryStoreRegistry {
     referenceStore: new MemoryReferenceStore(referenceTables),
     partnerTables,
     partnerStore: new MemoryPartnerStore(partnerTables),
+    documentTables,
+    documentStore: new MemoryDocumentStore(documentTables, {
+      // The owner has to exist in this organisation before a document may
+      // hang off it — the same rule the database enforces with a foreign key.
+      exists(organizationId, ownerType, ownerId) {
+        switch (ownerType) {
+          case 'partner_company':
+            return partnerTables.companies.some(
+              (company) => company.id === ownerId && company.organizationId === organizationId,
+            );
+          case 'reference_project':
+            return referenceTables.projects.some(
+              (project) => project.id === ownerId && project.organizationId === organizationId,
+            );
+          case 'business_client':
+            return referenceTables.clients.some(
+              (client) => client.id === ownerId && client.organizationId === organizationId,
+            );
+          case 'organization':
+            return organizationId === ownerId;
+        }
+      },
+    }),
     bootstrap: null,
   };
 }
@@ -128,4 +161,8 @@ export function getMemoryReferenceStore(): MemoryReferenceStore {
 
 export function getMemoryPartnerStore(): MemoryPartnerStore {
   return getRegistry().partnerStore;
+}
+
+export function getMemoryDocumentStore(): MemoryDocumentStore {
+  return getRegistry().documentStore;
 }

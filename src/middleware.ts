@@ -16,6 +16,8 @@ import { NextResponse, type NextRequest } from 'next/server';
  * middleware is a no-op.
  */
 
+// `/onboarding` is reachable while signed in but without an organisation.
+// It is not public: the page and its API both re-check the session.
 const PUBLIC_PATHS = ['/login', '/auth'];
 
 function isPublicPath(pathname: string): boolean {
@@ -26,20 +28,24 @@ function isPublicPath(pathname: string): boolean {
 
 export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // The current name first, the legacy one only as a documented transition
+  // (see docs/environment-variables.md).
+  const publishableKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (
     url === undefined ||
     url.length === 0 ||
-    anonKey === undefined ||
-    anonKey.length === 0
+    publishableKey === undefined ||
+    publishableKey.length === 0
   ) {
     return NextResponse.next();
   }
 
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(url, anonKey, {
+  const supabase = createServerClient(url, publishableKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();

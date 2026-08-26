@@ -1,15 +1,17 @@
 import type { Metadata } from 'next';
 import { Badge, DemoBadge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { DocumentPanel } from '@/components/documents/document-panel';
 import { DataList, DataRow, PageHeader, PhasePlaceholder } from '@/components/ui/page';
 import { SECTORS } from '@/config/sectors';
-import { requirePermission } from '@/lib/auth/session';
+import { hasPermission, requirePermission } from '@/lib/auth/session';
 import { DEFAULT_MATCH_PROFILE } from '@/modules/matching/preview';
 
 export const metadata: Metadata = { title: 'Unternehmensprofil' };
 
 export default async function CompanyPage() {
   const session = await requirePermission('company:read');
+  const canManageDocuments = hasPermission(session, 'company:write');
 
   return (
     <div className="space-y-5">
@@ -127,6 +129,22 @@ export default async function CompanyPage() {
           </Card>
         </aside>
       </div>
+      <Card>
+        <CardHeader
+          title="Unternehmensdokumente"
+          description="Eigene Zertifikate, Versicherungsnachweise und Qualitätsunterlagen. Privat abgelegt; Download nur über kurzlebige Links."
+        />
+        <CardBody>
+          <DocumentPanel
+            ownerType="organization"
+            ownerId={session.organization.id}
+            canWrite={canManageDocuments}
+            canDelete={canManageDocuments}
+            title="Eigene Nachweise"
+          />
+        </CardBody>
+      </Card>
+
     </div>
   );
 }

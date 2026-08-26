@@ -1,0 +1,150 @@
+name: CI
+
+# Runs on every pull request and on pushes to main.
+#
+# Deliberately needs **no Supabase credentials**: a pull request from a fork
+# must be able to pass, and a workflow that requires production secrets to run
+# tests is a workflow that eventually gets them stolen. Everything here works
+# against the repository alone, plus a throwaway PostgreSQL for the SQL tests.
+#
+# This workflow never applies a migration to a remote database. Deployment is
+# a separate, manual decision — see docs/deployment.md.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typen, Lint, Tests, Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Sicherheitslücken prüfen
+        run: npm audit --audit-level=high
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Unit- und Integrationstests
+        run: npm run test
+
+      - name: Migrationen statisch prüfen
+        run: npm run db:validate
+
+      - name: Production Build
+        # No Supabase configuration is present, so the build must succeed
+        # without one. NODE_ENV=production would make the backend resolution
+        # fail on purpose; the build itself does not resolve it.
+        run: npm run build
+
+  secrets:
+    name: Secret-Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Keine Secrets im verfolgten Code
+        run: |
+          set -euo pipefail
+          # Long random-looking values assigned to a credential-shaped name.
+          if git grep -nIE "(api[_-]?key|secret|password|token|service_role)[[:space:]]*[:=][[:space:]]*['\"][A-Za-z0-9_/+-]{16,}" -- . ':!*.md' ':!.github/workflows/*'; then
+            echo "::error::Möglicher hartkodierter Zugangswert gefunden."
+            exit 1
+          fi
+          # A JWT literal is what a leaked Supabase key looks like.
+          if git grep -nIE "eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\." -- .; then
+            echo "::error::JWT-artiger Wert im Repository gefunden."
+            exit 1
+          fi
+          echo "Keine Secrets gefunden."
+
+      - name: Keine .env-Datei verfolgt
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '^\.env' | grep -v '^\.env\.example$'; then
+            echo "::error::Eine .env-Datei ist versioniert."
+            exit 1
+          fi
+          echo "Nur .env.example ist verfolgt."
+
+      - name: Keine öffentlichen Storage-URLs im Code
+        run: |
+          set -euo pipefail
+          if git grep -nIE "/storage/v1/object/public/" -- src supabase; then
+            echo "::error::Öffentlicher Storage-Pfad gefunden. Buckets sind privat."
+            exit 1
+          fi
+          echo "Keine öffentlichen Storage-Pfade."
+
+  database:
+    name: SQL- und RLS-Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # A throwaway PostgreSQL. It is not Supabase, so the platform objects the
+    # migrations expect are stubbed below; what this proves is that the
+    # migrations apply cleanly and that the policies behave as written.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sichervergabe_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: psql bereitstellen
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Plattform-Stellvertreter anlegen
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d sichervergabe_test -v ON_ERROR_STOP=1 -f supabase/setup/local-platform-shim.sql
+
+      - name: Migrationen anwenden
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          for file in supabase/migrations/*.sql; do
+            echo "── $file"
+            psql -h localhost -U postgres -d sichervergabe_test -v ON_ERROR_STOP=1 -q -f "$file"
+          done
+
+      - name: SQL- und RLS-Tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sichervergabe_test
+        run: npm run db:test

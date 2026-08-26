@@ -3,22 +3,26 @@
 /**
  * Browser Supabase client.
  *
- * Uses the anon key only — all access is constrained by RLS. Never import
- * anything from lib/supabase/server.ts here.
+ * Uses the publishable key only — every access is constrained by Row Level
+ * Security. It imports `@/lib/env/public`, never `@/lib/env` or
+ * `@/lib/env/server`: those are `server-only`, and pulling one in here would
+ * be a build error rather than a quiet leak.
  */
 
 import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { env } from '@/lib/env';
+import { publicEnv } from '@/lib/env/public';
 
 let client: SupabaseClient | null = null;
 
-/** Returns null when Supabase is not configured (local demo mode). */
+/** Returns null when Supabase is not configured (local development mode). */
 export function getBrowserSupabaseClient(): SupabaseClient | null {
-  if (env.supabaseUrl === undefined || env.supabaseAnonKey === undefined) {
+  const { supabaseUrl, supabasePublishableKey } = publicEnv;
+
+  if (supabaseUrl === undefined || supabasePublishableKey === undefined) {
     return null;
   }
 
-  client ??= createBrowserClient(env.supabaseUrl, env.supabaseAnonKey);
+  client ??= createBrowserClient(supabaseUrl, supabasePublishableKey);
   return client;
 }

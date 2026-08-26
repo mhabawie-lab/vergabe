@@ -1,6 +1,6 @@
 # SicherVergabe — Projektplan
 
-> Status: **Phase 3A abgeschlossen** (Stand: August 2026).
+> Status: **Phase 4 (Infrastruktur) abgeschlossen** (Stand: August 2026).
 > Phase 1 lieferte Fundament, Kerndatenmodell, Ingestion-Pipeline mit
 > DEMO-Quelle sowie Dashboard, Ausschreibungssuche und Detailansicht.
 > Phase 2 ergänzt die mandantenfähige Verwaltung eigener Kunden, Baustellen
@@ -15,6 +15,14 @@
 > mandantenprivates Werkzeug. Ausdrücklich **keine** öffentliche Partnerbörse
 > und kein Marktplatz. Kapitel 14 hält die Ausrichtung fest, Kapitel 15 den
 > Umsetzungsstand.
+>
+> **Phase 4** in der Umsetzung ist die **Infrastrukturphase**: Supabase-CLI als
+> Projektabhängigkeit, ausdrückliche Backendwahl ohne stille Rückfälle,
+> Onboarding der ersten Organisation, privater Dokumentenspeicher mit
+> signierten Links, automatisierte RLS- und Storage-Prüfungen sowie CI.
+> Kapitel 16 hält den Stand fest. Das ist **nicht** die „Phase 4" aus dem
+> ursprünglichen Phasenplan in Kapitel 11 (Unternehmens- und
+> Angebotsfunktionen); jene Inhalte bleiben offen.
 >
 > Dieses Dokument beschreibt Architektur, Datenmodell, Connector-Design,
 > Auth/Rollen, API-Struktur, Import-/Normalisierungsprozess,
@@ -1337,3 +1345,104 @@ ist, steht in `docs/supabase-setup.md`, Abschnitt 3b.
 1. Supabase-Projekt anlegen, Migrationen anwenden, RLS und Storage prüfen.
 2. Dateiupload mit privatem Bucket und signierten Links nachziehen.
 3. Erst danach Unternehmensradar oder TED/eForms.
+
+
+---
+
+## 16. Umsetzungsstand Phase 4 — Supabase-Infrastruktur
+
+> **Status: umgesetzt.** Diese Phase liefert die Grundlage, auf der echte
+> Daten überhaupt liegen dürfen: eine anwendbare Datenbank, eine
+> nachvollziehbare Backendwahl, geprüfte Mandantentrennung und einen privaten
+> Dokumentenspeicher. Sie bindet **keine** Live-Datenquelle an.
+
+### 16.1 Werkzeuge
+
+* Supabase CLI als Projektabhängigkeit mit festgelegter Version — keine
+  undokumentierte globale Installation.
+* `supabase/config.toml` versioniert; Geheimnisse ausschließlich als
+  `env(...)`-Verweis. Lokal: Mindestpasswortlänge 12, anonyme Anmeldungen aus.
+* Skripte: `supabase:start|stop|status|migrations|types|reset|test`,
+  `db:validate`, `db:test`; `verify` umfasst Typen, Lint, Tests,
+  Migrationsprüfung und Build.
+
+### 16.2 Umgebung und Backendwahl
+
+* Getrennte Module `src/lib/env/public.ts` (browsersicher) und
+  `src/lib/env/server.ts` (`server-only`).
+* Aktuelle Schlüsselnamen (`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+  `SUPABASE_SECRET_KEY`); die alten werden mit Warnung weitergelesen, ohne
+  jemals einen Wert zu protokollieren.
+* `DATA_BACKEND` entscheidet ausdrücklich. **Kein stiller Rückfall:** fehlende
+  Konfiguration bei `supabase` ist ein Fehler, `memory` in der Produktion
+  unzulässig, fehlende Konfiguration in der Produktion ein Startabbruch.
+* Die Entscheidung fällt einmal, wird einmal protokolliert, und kein `catch`
+  im Datenzugriff wechselt sie.
+
+### 16.3 Datenbank
+
+* 16 Migrationen, 41 Tabellen mit RLS, 20 Funktionen mit festgelegtem
+  `search_path`.
+* `0014` härtet vier ältere Funktionen — additiv, ohne eine veröffentlichte
+  Migration umzuschreiben.
+* `0015` legt Dokumenttabellen, drei private Buckets und zwölf
+  Storage-Policies an, `0016` das Onboarding.
+* `npm run db:validate` prüft statisch: Nummerierung, zerstörende
+  Anweisungen, RLS-Abdeckung, `search_path`, `security definer`-Erlaubnisliste,
+  dynamisches SQL aus Parametern.
+
+### 16.4 Authentifizierung und Organisation
+
+* Drei Sitzungszustände: anonym, Onboarding, angemeldet. Ein angemeldeter
+  Benutzer ohne Organisation landet nicht mehr auf der Anmeldeseite.
+* `create_first_organization` legt Organisation, Mitgliedschaft (`org_admin`)
+  und Auditeintrag in einer Transaktion an, verhindert ein zweites Onboarding
+  und ist für `anon` nicht ausführbar.
+* **Keine öffentliche Selbstregistrierung für fremde Firmen.** Partnerfirmen
+  bekommen keine Konten (Kapitel 14).
+* Die Organisation stammt immer aus der Sitzung, nie aus dem Request. Fremde
+  Kennungen erscheinen als „nicht gefunden".
+
+### 16.5 Dokumente
+
+* Drei private Buckets, 25 MB, sechs erlaubte Typen, Pfad
+  `<organization_id>/<entity_type>/<entity_id>/<uuid>-<datei>`.
+* SHA-256 je Datei, Originalname getrennt vom Objektschlüssel, Archivieren als
+  Normalfall, Löschen nur mit eigener Berechtigung, Auditeintrag ohne Inhalte.
+* Downloads ausschließlich über signierte Links (Standard 300 s), die nirgends
+  gespeichert werden; erzeugt mit der Sitzung des Aufrufers, nie mit dem
+  Secret Key.
+* **Keine vorgetäuschte Schadsoftwareprüfung:** `scan_status` bleibt
+  `not_scanned`, die Oberfläche sagt „nicht geprüft".
+
+### 16.6 Prüfungen
+
+* 300 Unit-Tests, 103 SQL-Prüfungen in vier Skripten, alle als Rolle
+  `authenticated` statt als Superuser.
+* CI ohne jedes Supabase-Geheimnis: Typen, Lint, Tests, Build,
+  Migrationsprüfung, Secret-Scan, SQL- und RLS-Tests gegen ein
+  Wegwerf-PostgreSQL.
+
+### 16.7 Offene Punkte
+
+1. **Kein Lauf gegen eine echte Supabase-Instanz.** Kein erreichbarer
+   Docker-Daemon, keine Zugangsdaten. Geprüft wurde gegen ein lokales
+   PostgreSQL mit nachgebildetem `auth`- und `storage`-Schema; die echte
+   Storage-API, die JWT-Auswertung und die Bucket-Limits sind damit nicht
+   abgedeckt.
+2. **`src/types/database.ts` fehlt** — `supabase gen types` braucht eine
+   erreichbare Instanz; erfundene Typen wären eine ungeprüfte Zusicherung.
+3. **Kein Virenscanner.**
+4. **Keine Einladungsfunktion** für weitere Mitglieder; bis dahin über das
+   Supabase-Dashboard.
+5. **Kein automatisches Deployment und keine Migration aus CI heraus.**
+6. **Keine Dokumentoberfläche am Kunden** (`business_client`); Datenmodell und
+   API tragen sie bereits.
+
+### 16.8 Nächste sinnvolle Schritte
+
+1. Supabase-Projekt anlegen und die Checkliste in
+   `docs/supabase-one-time-setup.md` abarbeiten.
+2. Danach Typen erzeugen und die SQL-Tests einmal gegen die
+   Entwicklungsinstanz laufen lassen.
+3. Erst danach Unternehmensradar, Orbis/GLEIF oder TED/eForms.

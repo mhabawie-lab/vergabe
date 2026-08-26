@@ -1,83 +1,55 @@
 /**
- * Typed, validated access to environment variables.
+ * Server-side environment surface.
  *
- * Secrets live exclusively in the environment — never in source
- * (CLAUDE.md § Sicherheit & Secrets). Reading them through this module keeps
- * the "is Supabase configured?" decision in one place, so the app boots and
- * builds cleanly before any credentials exist.
+ * Kept as a stable import path for existing server code; the values now come
+ * from `./env/server`, which is `server-only`. Client components must import
+ * `./env/public` instead — that split is what keeps the secret key out of a
+ * browser bundle by construction rather than by convention.
  */
 
-import { z } from 'zod';
+export {
+  EnvironmentError,
+  hasSupabaseClientConfig,
+  hasSupabaseServiceConfig,
+  legacyEnvironmentWarnings,
+  resolveBackend,
+  serverEnv,
+  type BackendDecision,
+} from './env/server';
 
-const optionalNonEmpty = z
-  .string()
-  .trim()
-  .min(1)
-  .optional()
-  .catch(undefined);
+export { DATA_BACKENDS, publicEnv, type DataBackend } from './env/public';
 
-const publicEnvSchema = z.object({
-  supabaseUrl: z.url().optional().catch(undefined),
-  supabaseAnonKey: optionalNonEmpty,
-});
-
-const serverEnvSchema = z.object({
-  supabaseServiceRoleKey: optionalNonEmpty,
-  ingestionTriggerSecret: optionalNonEmpty,
-  anthropicApiKey: optionalNonEmpty,
-  logLevel: z.enum(['debug', 'info', 'warn', 'error']).catch('info'),
-});
+import { resolveBackend } from './env/server';
+import { serverEnv } from './env/server';
 
 /**
- * Next.js inlines `process.env.NEXT_PUBLIC_*` at build time only for
- * statically written property accesses, so these must not be dynamic.
+ * The values the application reads.
+ *
+ * `env.supabaseServiceRoleKey` is retained under its old name so the
+ * ingestion writer keeps working; it resolves from `SUPABASE_SECRET_KEY`
+ * first and from the legacy variable only as a documented transition.
  */
-const publicEnv = publicEnvSchema.parse({
-  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-});
-
-const serverEnv = serverEnvSchema.parse({
-  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  ingestionTriggerSecret: process.env.INGESTION_TRIGGER_SECRET,
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-  logLevel: process.env.LOG_LEVEL,
-});
-
 export const env = {
-  ...publicEnv,
-  ...serverEnv,
-  isProduction: process.env.NODE_ENV === 'production',
+  supabaseUrl: serverEnv.supabaseUrl,
+  supabaseAnonKey: serverEnv.supabasePublishableKey,
+  supabasePublishableKey: serverEnv.supabasePublishableKey,
+  supabaseServiceRoleKey: serverEnv.supabaseSecretKey,
+  supabaseSecretKey: serverEnv.supabaseSecretKey,
+  supabaseProjectRef: serverEnv.supabaseProjectRef,
+  databaseUrl: serverEnv.databaseUrl,
+  signedUrlTtlSeconds: serverEnv.signedUrlTtlSeconds,
+  ingestionTriggerSecret: serverEnv.ingestionTriggerSecret,
+  anthropicApiKey: serverEnv.anthropicApiKey,
+  logLevel: serverEnv.logLevel,
+  isProduction: serverEnv.isProduction,
 } as const;
 
 /**
- * True when browser-side Supabase access (auth, RLS-scoped reads) is
- * configured. When false the app runs in local demo mode.
- */
-export function hasSupabaseClientConfig(): boolean {
-  return (
-    publicEnv.supabaseUrl !== undefined && publicEnv.supabaseAnonKey !== undefined
-  );
-}
-
-/**
- * True when server-side privileged access (ingestion writes) is configured.
- * Callers must be server-only — the service role key bypasses RLS.
- */
-export function hasSupabaseServiceConfig(): boolean {
-  return (
-    publicEnv.supabaseUrl !== undefined &&
-    serverEnv.supabaseServiceRoleKey !== undefined
-  );
-}
-
-/**
- * Whether the app falls back to the in-process demo store.
+ * Whether the app runs against the in-process store.
  *
- * This is a development and preview convenience: the full ingestion
- * pipeline still runs, it just persists into memory instead of Postgres.
- * Records produced this way are always flagged `isDemo`.
+ * Derived from the resolved backend, not from "is Supabase configured?" —
+ * the two are no longer the same question now that `DATA_BACKEND` exists.
  */
 export function isDemoMode(): boolean {
-  return !hasSupabaseClientConfig();
+  return resolveBackend().backend === 'memory';
 }

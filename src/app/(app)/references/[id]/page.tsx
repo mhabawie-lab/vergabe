@@ -9,6 +9,7 @@ import { ServiceConfirmationPanel } from '@/components/references/service-confir
 import { hasPermission, requirePermission } from '@/lib/auth/session';
 import { getReferenceStore } from '@/lib/db';
 import { formatDate, formatDateTime } from '@/lib/utils/format';
+import { DocumentPanel } from '@/components/documents/document-panel';
 import { CLASSIFICATION_PROPOSAL_NOTE } from '@/modules/references/classification';
 import { CONFIRMATION_ACTION_LABELS } from '@/modules/references/confirmation';
 import { SHIFT_MEANING_NOTE, formatShiftSummary } from '@/modules/references/shift-format';
@@ -275,6 +276,22 @@ export default async function ReferenceDetailPage({ params }: PageProps) {
                 Referenzschreiben und Leistungsnachweise werden mit der
                 Dokumentenverarbeitung hinterlegt und geprüft.
               </PhasePlaceholder>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Dokumente"
+              description="Nachweise zu diesem Referenzprojekt. Privat abgelegt, Download nur über kurzlebige Links."
+            />
+            <CardBody>
+              <DocumentPanel
+                ownerType="reference_project"
+                ownerId={project.id}
+                canWrite={canEdit}
+                canDelete={canEdit}
+                title="Referenznachweise"
+              />
             </CardBody>
           </Card>
 

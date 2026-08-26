@@ -1,67 +1,121 @@
 /**
  * Storage adapter selection.
  *
- * One decision point: with Supabase configured the app talks to Postgres,
- * without it to the in-process demo store. Everything above this file — pages,
- * route handlers, the ingestion pipeline — depends only on the port
+ * One decision point for the whole application. Everything above this file —
+ * pages, route handlers, the ingestion pipeline — depends only on the port
  * interfaces and is unaffected by the choice.
+ *
+ * The rule that governs it: **Supabase never falls back to memory.** If the
+ * backend is Supabase and something is missing or broken, the request fails
+ * with the reason. A fallback would present an empty application as a working
+ * one, and would accept customer data into a store that evaporates on
+ * restart. `resolveBackend()` decides once, from configuration, and errors
+ * rather than guessing.
  *
  * Server-only.
  */
 
 import 'server-only';
 
-import { hasSupabaseClientConfig } from '@/lib/env';
+import { EnvironmentError, resolveBackend, type BackendDecision } from '@/lib/env';
 import { logger } from '@/lib/logging';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   ensureDemoDataLoaded,
+  getMemoryDocumentStore,
   getMemoryPartnerStore,
   getMemoryReferenceStore,
   getMemoryTenderRepository,
 } from './memory';
+import { SupabaseDocumentStore } from './supabase/document-store';
 import { SupabasePartnerStore } from './supabase/partner-store';
 import { SupabaseReferenceStore } from './supabase/reference-store';
 import { SupabaseTenderRepository } from './supabase/tender-repository';
 import type { TenderRepository } from './ports';
+import type { DocumentStore } from './document-ports';
 import type { PartnerStore } from './partner-ports';
 import type { ReferenceStore } from './reference-ports';
 
-let demoModeLogged = false;
+let backendLogged = false;
+
+/**
+ * The active backend, resolved once per process.
+ *
+ * Memoised so the (possibly throwing) resolution runs once and the log line
+ * appears once, rather than on every request.
+ */
+let decision: BackendDecision | null = null;
+
+export function getBackendDecision(): BackendDecision {
+  decision ??= resolveBackend();
+
+  if (!backendLogged) {
+    backendLogged = true;
+    if (decision.backend === 'memory') {
+      logger.warn(
+        'Datenbackend: flüchtiger Speicher. Daten gehen beim Neustart verloren.',
+        { scope: 'db', reason: decision.reason, explicit: decision.explicit },
+      );
+    } else {
+      logger.info('Datenbackend: Supabase', {
+        scope: 'db',
+        reason: decision.reason,
+        explicit: decision.explicit,
+      });
+    }
+  }
+
+  return decision;
+}
+
+/** True when the app runs against the in-process store. */
+export function isUsingDemoStore(): boolean {
+  try {
+    return getBackendDecision().backend === 'memory';
+  } catch {
+    // A misconfiguration is not "demo mode". Callers that only want a banner
+    // should not be the ones to surface the error; the data call will.
+    return false;
+  }
+}
+
+/** The reason the current backend was chosen. For the infrastructure page. */
+export function describeBackend(): { backend: string; reason: string; explicit: boolean } {
+  try {
+    const current = getBackendDecision();
+    return {
+      backend: current.backend,
+      reason: current.reason,
+      explicit: current.explicit,
+    };
+  } catch (error) {
+    return {
+      backend: 'nicht auflösbar',
+      reason: error instanceof EnvironmentError ? error.message : 'Unbekannter Fehler',
+      explicit: false,
+    };
+  }
+}
 
 /**
  * Read repository for the current request.
  *
- * In demo mode the pipeline is run once before the first read, so the UI is
+ * In memory mode the pipeline is run once before the first read, so the UI is
  * always served from normalised records rather than from fixtures directly.
  */
 export async function getTenderRepository(): Promise<TenderRepository> {
-  if (hasSupabaseClientConfig()) {
+  if (getBackendDecision().backend === 'supabase') {
     const client = await createServerSupabaseClient();
     return new SupabaseTenderRepository(client);
-  }
-
-  if (!demoModeLogged) {
-    demoModeLogged = true;
-    logger.warn(
-      'Supabase ist nicht konfiguriert — die Anwendung läuft im lokalen DEMO-Modus.',
-      { scope: 'db' },
-    );
   }
 
   await ensureDemoDataLoaded();
   return getMemoryTenderRepository();
 }
 
-/**
- * Store for customer and reference data.
- *
- * Without Supabase this is the in-process store, which is volatile: the UI
- * says so wherever real customer data could be entered, so nobody imports a
- * customer list into something that vanishes on restart.
- */
+/** Store for customer and reference data. */
 export async function getReferenceStore(): Promise<ReferenceStore> {
-  if (hasSupabaseClientConfig()) {
+  if (getBackendDecision().backend === 'supabase') {
     const client = await createServerSupabaseClient();
     return new SupabaseReferenceStore(client);
   }
@@ -69,15 +123,9 @@ export async function getReferenceStore(): Promise<ReferenceStore> {
   return getMemoryReferenceStore();
 }
 
-/**
- * Store for the Subunternehmer-Radar.
- *
- * Same choice as the reference store: Postgres when configured, the volatile
- * in-process store otherwise. The screens say so wherever partner data could
- * be entered.
- */
+/** Store for the Subunternehmer-Radar. */
 export async function getPartnerStore(): Promise<PartnerStore> {
-  if (hasSupabaseClientConfig()) {
+  if (getBackendDecision().backend === 'supabase') {
     const client = await createServerSupabaseClient();
     return new SupabasePartnerStore(client);
   }
@@ -85,12 +133,29 @@ export async function getPartnerStore(): Promise<PartnerStore> {
   return getMemoryPartnerStore();
 }
 
-/** True when the app runs against the in-process demo store. */
-export function isUsingDemoStore(): boolean {
-  return !hasSupabaseClientConfig();
+/**
+ * Store for private documents.
+ *
+ * The same single decision point. In memory mode the store says so through
+ * `capabilities()`, and the UI repeats it wherever an upload is offered —
+ * nobody should believe a certificate is safely filed when it is not.
+ */
+export async function getDocumentStore(): Promise<DocumentStore> {
+  if (getBackendDecision().backend === 'supabase') {
+    const client = await createServerSupabaseClient();
+    return new SupabaseDocumentStore(client);
+  }
+
+  return getMemoryDocumentStore();
 }
 
 export { getIngestionStore } from './ingestion';
+
+export type {
+  DocumentStore,
+  DocumentStoreCapabilities,
+  StoredDocument,
+} from './document-ports';
 
 export type {
   PartnerCompanyDetail,
