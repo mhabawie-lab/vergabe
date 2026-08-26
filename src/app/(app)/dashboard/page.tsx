@@ -1,10 +1,15 @@
 import type { Metadata } from 'next';
 import {
+  Antenna,
   Award,
   Briefcase,
   Building2,
+  CalendarClock,
+  ClipboardList,
+  FileBadge,
   FileSearch,
   Gavel,
+  Handshake,
   MapPin,
   Radar,
   ShieldCheck,
@@ -17,8 +22,13 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { LinkButton } from '@/components/ui/button';
 import { EmptyState, PageHeader, PageSection } from '@/components/ui/page';
 import { DemoBadge } from '@/components/ui/badge';
-import { getReferenceStore, getTenderRepository, isUsingDemoStore } from '@/lib/db';
-import { requireSession } from '@/lib/auth/session';
+import {
+  getPartnerStore,
+  getReferenceStore,
+  getTenderRepository,
+  isUsingDemoStore,
+} from '@/lib/db';
+import { hasPermission, requireSession } from '@/lib/auth/session';
 import { formatCurrencyCompact, formatNumber } from '@/lib/utils/format';
 import { DeadlineList } from '@/components/dashboard/deadline-list';
 import { TOP_MATCH_THRESHOLD } from '@/modules/matching/preview';
@@ -30,18 +40,35 @@ export default async function DashboardPage() {
   const repository = await getTenderRepository();
 
   const referenceStore = await getReferenceStore();
+  const partnerStore = await getPartnerStore();
 
-  const [metrics, recent, deadlines, demoOnly, referenceMetrics] = await Promise.all([
-    repository.getDashboardMetrics(session.organization.id),
-    repository.listRecent(8),
-    repository.listUpcomingDeadlines(6),
-    repository.isDemoOnly(),
-    referenceStore.getMetrics(session.organization.id),
-  ]);
+  const [metrics, recent, deadlines, demoOnly, referenceMetrics, partnerMetrics] =
+    await Promise.all([
+      repository.getDashboardMetrics(session.organization.id),
+      repository.listRecent(8),
+      repository.listUpcomingDeadlines(6),
+      repository.isDemoOnly(),
+      referenceStore.getMetrics(session.organization.id),
+      // Partner data is tenant-private; the tiles only appear for members who
+      // may read it and only once there is something behind them.
+      hasPermission(session, 'subcontractors:read')
+        ? partnerStore.getMetrics(session.organization.id)
+        : null,
+    ]);
 
   // The reference block is only worth its space once there is data behind it.
   const hasReferenceData =
     referenceMetrics.activeClients > 0 || referenceMetrics.referenceProjects > 0;
+
+  // Same restraint for the radar: no empty row of zeroes on a dashboard that
+  // already carries six tiles.
+  const hasPartnerData =
+    partnerMetrics !== null &&
+    (partnerMetrics.qualifiedPartners > 0 ||
+      partnerMetrics.companiesSeekingSubcontractors > 0 ||
+      partnerMetrics.openNeeds > 0 ||
+      partnerMetrics.expiringCredentials > 0 ||
+      partnerMetrics.dueFollowUps > 0);
 
   const showDemoNotice = isUsingDemoStore() || demoOnly;
 
@@ -157,6 +184,64 @@ export default async function DashboardPage() {
               Icon={ShieldCheck}
               tone="success"
               href="/references?referenceStatus=confirmed"
+            />
+          </div>
+        </PageSection>
+      )}
+
+      {hasPartnerData && partnerMetrics !== null && (
+        <PageSection>
+          <h2 className="text-sm font-semibold text-text-primary">
+            Subunternehmer-Radar
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <KpiCard
+              label="Qualifizierte Partner"
+              value={formatNumber(partnerMetrics.qualifiedPartners)}
+              hint="Status qualifiziert oder bevorzugt, nicht gesperrt"
+              Icon={Handshake}
+              tone="brand"
+              href="/subcontractors?statuses=qualified"
+            />
+            <KpiCard
+              label="Aktuell verfügbar"
+              value={formatNumber(partnerMetrics.availableNow)}
+              hint="Mit bestätigter, nicht veralteter Verfügbarkeit"
+              Icon={CalendarClock}
+              tone="success"
+              href="/subcontractors"
+            />
+            <KpiCard
+              label="Suchen Subunternehmer"
+              value={formatNumber(partnerMetrics.companiesSeekingSubcontractors)}
+              hint="Mit offenem Bedarfssignal"
+              Icon={Antenna}
+              tone="info"
+              href="/subcontractors/signals?demandOnly=true"
+            />
+            <KpiCard
+              label="Fällige Wiedervorlagen"
+              value={formatNumber(partnerMetrics.dueFollowUps)}
+              hint="Heute oder überfällig"
+              Icon={Timer}
+              tone="warning"
+              href="/subcontractors/activities"
+            />
+            <KpiCard
+              label="Ablaufende Nachweise"
+              value={formatNumber(partnerMetrics.expiringCredentials)}
+              hint="In den nächsten 90 Tagen oder bereits abgelaufen"
+              Icon={FileBadge}
+              tone="warning"
+              href="/subcontractors/credentials"
+            />
+            <KpiCard
+              label="Offene eigene Bedarfe"
+              value={formatNumber(partnerMetrics.openNeeds)}
+              hint="Aktiv oder in Prüfung"
+              Icon={ClipboardList}
+              tone="neutral"
+              href="/subcontractors/needs"
             />
           </div>
         </PageSection>

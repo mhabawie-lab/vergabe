@@ -6,7 +6,13 @@
  * silently picks the wrong column would corrupt customer data quietly.
  */
 
-import { normalizeForComparison } from './normalize';
+import {
+  applyMappingFor,
+  findMissingFields,
+  proposeMappingFor,
+  toRawRecord as toRawRecordShared,
+  type ColumnAssignment as GenericColumnAssignment,
+} from '@/lib/import/column-matching';
 
 /** The fields an import can fill. */
 export const IMPORT_FIELDS = [
@@ -115,92 +121,23 @@ const FIELD_MATCHERS: readonly FieldMatcher[] = [
   },
 ] as const;
 
-export interface ColumnAssignment {
-  /** Index into `ParsedTable.headers`. */
-  columnIndex: number;
-  header: string;
-  /** null means: column is ignored. */
-  field: ImportField | null;
-  /** How the proposal came about. */
-  matchType: 'exact' | 'partial' | 'none';
-}
+export type ColumnAssignment = GenericColumnAssignment<ImportField>;
 
 export type ColumnMapping = ColumnAssignment[];
 
 /**
  * Proposes an assignment for every source column.
  *
- * A field is assigned at most once: if two columns look like "Ort", the first
- * wins and the second is left unassigned for the user to resolve. Guessing
- * which of two candidates is right is not something this code can do safely.
+ * The matching itself lives in `@/lib/import/column-matching`, shared with the
+ * partner import — the rules are identical and must stay that way.
  */
 export function proposeColumnMapping(headers: readonly string[]): ColumnMapping {
-  const taken = new Set<ImportField>();
-
-  const exactMatch = (normalized: string): ImportField | null => {
-    for (const matcher of FIELD_MATCHERS) {
-      if (taken.has(matcher.field)) continue;
-      if (matcher.aliases.includes(normalized)) return matcher.field;
-    }
-    return null;
-  };
-
-  const partialMatch = (normalized: string): ImportField | null => {
-    if (normalized.length < 3) return null;
-    for (const matcher of FIELD_MATCHERS) {
-      if (taken.has(matcher.field)) continue;
-      for (const alias of matcher.aliases) {
-        if (alias.length < 3) continue;
-        if (normalized.startsWith(alias) || alias.startsWith(normalized)) {
-          return matcher.field;
-        }
-      }
-    }
-    return null;
-  };
-
-  // Two passes so an exact hit on a later column is never displaced by an
-  // earlier column's partial hit.
-  const normalizedHeaders = headers.map((header) => normalizeForComparison(header));
-  const assignments: ColumnMapping = headers.map((header, columnIndex) => ({
-    columnIndex,
-    header,
-    field: null,
-    matchType: 'none',
-  }));
-
-  normalizedHeaders.forEach((normalized, index) => {
-    const field = exactMatch(normalized);
-    if (field === null) return;
-    taken.add(field);
-    const assignment = assignments[index];
-    if (assignment !== undefined) {
-      assignment.field = field;
-      assignment.matchType = 'exact';
-    }
-  });
-
-  normalizedHeaders.forEach((normalized, index) => {
-    const assignment = assignments[index];
-    if (assignment === undefined || assignment.field !== null) return;
-    const field = partialMatch(normalized);
-    if (field === null) return;
-    taken.add(field);
-    assignment.field = field;
-    assignment.matchType = 'partial';
-  });
-
-  return assignments;
+  return proposeMappingFor(headers, FIELD_MATCHERS);
 }
 
 /** Fields the mapping does not cover, out of the required set. */
 export function findMissingRequiredFields(mapping: ColumnMapping): ImportField[] {
-  const assigned = new Set(
-    mapping
-      .map((assignment) => assignment.field)
-      .filter((field): field is ImportField => field !== null),
-  );
-  return REQUIRED_IMPORT_FIELDS.filter((field) => !assigned.has(field));
+  return findMissingFields(mapping, REQUIRED_IMPORT_FIELDS);
 }
 
 /** Reads one source row into a field-keyed record, following the mapping. */
@@ -208,17 +145,7 @@ export function applyMapping(
   mapping: ColumnMapping,
   row: readonly string[],
 ): Partial<Record<ImportField, string>> {
-  const result: Partial<Record<ImportField, string>> = {};
-
-  for (const assignment of mapping) {
-    if (assignment.field === null) continue;
-    const value = row[assignment.columnIndex];
-    if (value === undefined) continue;
-    const trimmed = value.trim();
-    if (trimmed.length > 0) result[assignment.field] = trimmed;
-  }
-
-  return result;
+  return applyMappingFor(mapping, row);
 }
 
 /** Keeps the full source row keyed by header, for immutable storage. */
@@ -226,9 +153,5 @@ export function toRawRecord(
   headers: readonly string[],
   row: readonly string[],
 ): Record<string, string> {
-  const raw: Record<string, string> = {};
-  headers.forEach((header, index) => {
-    raw[header] = row[index] ?? '';
-  });
-  return raw;
+  return toRawRecordShared(headers, row);
 }

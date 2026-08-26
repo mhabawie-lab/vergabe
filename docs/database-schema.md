@@ -22,22 +22,26 @@ Row Level Security ist auf **allen** Tabellen aktiv.
 | `0008_reference_rls_audit.sql`     | **Phase 2** — RLS und Audit für Referenzdaten       |
 | `0009_service_confirmation.sql`    | **Phase 2** — Bestätigungszustand der Leistungsarten |
 | `0010_reference_search_rpc.sql`    | **Phase 2** — serverseitige Referenzsuche als Funktion |
+| `0011_partner_companies.sql`       | **Phase 3A** — Subunternehmer-Radar: 15 Tabellen, 24 Enums |
+| `0012_partner_rls_audit.sql`       | **Phase 3A** — RLS, Audit, Ketten- und Sperrschutz         |
+| `0013_partner_search_rpc.sql`      | **Phase 3A** — serverseitige Partnersuche als Funktion     |
 
 Anwenden mit `supabase db push`; ohne Zugangsdaten siehe
 `docs/supabase-setup.md`.
 
 ---
 
-## Zwei getrennte Welten
+## Drei getrennte Welten
 
-Das Schema hält zwei Arten von Gegenparteien strikt auseinander:
+Das Schema hält drei Arten von Gegenparteien strikt auseinander:
 
-| | `contracting_authorities` | `business_clients` |
-|---|---|---|
-| Wer | öffentliche Vergabestelle | eigener Geschäftskunde |
-| Herkunft | aus Vergabeverfahren importiert | vom Nutzerunternehmen gepflegt |
-| Sichtbarkeit | für alle angemeldeten Nutzer lesbar | nur für die eigene Organisation |
-| Mandant | keiner (geteilte Referenzdaten) | `organization_id` |
+| | `contracting_authorities` | `business_clients` | `partner_companies` |
+|---|---|---|---|
+| Wer | öffentliche Vergabestelle | eigener Geschäftskunde | möglicher Nachunternehmer oder Auftraggeber |
+| Richtung | vergibt an uns | wir leisten für ihn | leistet für uns bzw. vergibt selbst |
+| Herkunft | aus Vergabeverfahren importiert | vom Nutzerunternehmen gepflegt | vom Nutzerunternehmen gepflegt |
+| Sichtbarkeit | für alle angemeldeten Nutzer lesbar | nur für die eigene Organisation | nur für die eigene Organisation |
+| Mandant | keiner (geteilte Referenzdaten) | `organization_id` | `organization_id` |
 
 Sie werden nie zusammengeführt. Ein öffentlicher Auftraggeber kann durchaus
 auch Kunde sein — das sind dann zwei Datensätze mit unterschiedlicher
@@ -45,6 +49,10 @@ Rechtsnatur und unterschiedlicher Vertraulichkeit.
 
 Analog gilt: `awards` sind fremde Zuschläge aus Vergabeverfahren,
 `reference_projects` sind eigene Kundenprojekte.
+
+Dieselbe Firma kann in mehreren Rollen auftreten — als Kunde und als
+Nachunternehmer. Das sind getrennte Datensätze mit unterschiedlicher
+Rechtsnatur und Vertraulichkeit, keine zwei Sichten auf einen Satz.
 
 ---
 
@@ -163,6 +171,11 @@ Protokoll jedes Importlaufs, einschließlich Testläufen (`status = dry_run`).
 | `log_reference_change()` | schreibt Änderungen an Referenzdaten ins `audit_log` — nur Metadaten |
 | `log_service_confirmation()` | protokolliert Bestätigungsentscheidungen mit altem und neuem Wert |
 | `search_reference_projects()` | gefilterte Referenzsuche, `security invoker` — RLS gilt unverändert |
+| `search_partner_companies()` | gefilterte Partnersuche, `security invoker` — RLS gilt unverändert |
+| `reject_demo_partner_data()` | Partnerdaten dürfen nicht an einer Demo-Organisation hängen |
+| `log_partner_change()` | schreibt Änderungen an Partnerdaten ins `audit_log` — nur Metadaten |
+| `enforce_partner_block_reason()` | eine Sperrung braucht eine Begründung und schließt „bevorzugt" aus |
+| `enforce_assignment_chain()` | verhindert Kreise und begrenzt die Kettentiefe auf sechs Ebenen |
 
 ---
 
@@ -209,3 +222,67 @@ Zusätzliche Indizes: `reference_project_services (reference_project_id,
 service_category)` und `(reference_project_id, confirmation_status)`.
 
 Prüfskript: `supabase/tests/reference-search.sql`.
+
+
+---
+
+## Phase 3A — Subunternehmer-Radar
+
+15 Tabellen, alle mandantenprivat. Namensentscheidung: `partner_companies`
+statt `subcontractors`, weil ein Datensatz für uns arbeiten, uns beauftragen
+oder beides kann — siehe `docs/subcontractor-radar.md`.
+
+### Tabellen
+
+| Tabelle | Inhalt |
+|---|---|
+| `partner_companies` | Firmenstammdaten, Beziehungsrichtung, Ebene, Status, Verifizierung, öffentliche Kennungen |
+| `partner_contacts` | Ansprechpartner, nur geschäftliche Kontaktdaten |
+| `partner_services` | angebotene Leistungen mit Bestätigungszustand |
+| `partner_service_regions` | Einsatzgebiete, Radius, bundesweit |
+| `partner_availability` | Verfügbarkeit mit `last_confirmed_at` |
+| `partner_qualifications` | Nachweise mit Gültigkeit und Prüfstatus |
+| `partner_documents` | Dokumentmetadaten, privater Storage-Pfad |
+| `partner_rates` | verhandelte Konditionen — besonders vertraulich |
+| `partner_activities` | Telefonate, Besprechungen, Wiedervorlagen |
+| `partner_signals` | Beobachtungen mit Pflicht-Quellenangabe und Konfidenz |
+| `subcontractor_needs` | eigener Bedarf, niemals öffentlich |
+| `subcontractor_matches` | berechnete Bewertungen mit Begründung und Score-Version |
+| `subcontractor_assignments` | Projektzuordnungen, selbstreferenzierende Kette |
+| `partner_imports` / `partner_import_rows` | Importprotokoll mit unverändertem `raw_data` |
+
+### Mandantensicherung
+
+Jede Kindtabelle führt `organization_id` selbst **und** ist über einen
+zusammengesetzten Fremdschlüssel auf `(id, organization_id)` der Elterntabelle
+gebunden. Die Spalte allein könnte mit dem Elternsatz auseinanderlaufen; der
+Schlüssel macht das in der Datenbank unmöglich statt nur im Anwendungscode.
+
+### Besonderheiten
+
+- `partner_documents.storage_path` trägt einen Check, der jede `http(s)`-URL
+  ablehnt: Dokumente liegen in einem privaten Bucket, nie hinter einer
+  öffentlichen Adresse.
+- `partner_documents.scan_status` steht auf `not_scanned`, solange kein Scanner
+  eingerichtet ist. Etwas anderes zu behaupten wäre schlimmer als zu schweigen.
+- `partner_companies` hat partielle Unique-Indizes auf Registernummer und
+  Umsatzsteuer-ID — die stärksten Dublettensignale, die es gibt.
+- `subcontractor_assignments.chain_level` wird vom Trigger errechnet, nicht vom
+  Client geschickt.
+
+### Suchfunktion (`0013`)
+
+`public.search_partner_companies` filtert, sortiert und paginiert in der
+Datenbank — die meisten Filter liegen in Kindtabellen (bestätigte Leistungen,
+Einsatzgebiete, Verfügbarkeit, Nachweisstand, offene Bedarfssignale). Nachträglich
+auf der geladenen Seite zu filtern ergäbe falsche Gesamtzahlen.
+
+| Eigenschaft | Umsetzung |
+|---|---|
+| Rechte | `security invoker` — RLS gilt unverändert |
+| Mandant | zusätzlich `is_org_member()`; fremde Organisation → leer |
+| Sortierung | Whitelist, kein dynamisches SQL |
+| Suchtext | Parameter, auf die Vergleichsform reduziert |
+| Radius | kein Geocoding — es zählt die Angabe des Unternehmens |
+
+Prüfskript: `supabase/tests/partner-search.sql`.

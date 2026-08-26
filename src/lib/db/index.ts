@@ -16,12 +16,15 @@ import { logger } from '@/lib/logging';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   ensureDemoDataLoaded,
+  getMemoryPartnerStore,
   getMemoryReferenceStore,
   getMemoryTenderRepository,
 } from './memory';
+import { SupabasePartnerStore } from './supabase/partner-store';
 import { SupabaseReferenceStore } from './supabase/reference-store';
 import { SupabaseTenderRepository } from './supabase/tender-repository';
 import type { TenderRepository } from './ports';
+import type { PartnerStore } from './partner-ports';
 import type { ReferenceStore } from './reference-ports';
 
 let demoModeLogged = false;
@@ -66,12 +69,35 @@ export async function getReferenceStore(): Promise<ReferenceStore> {
   return getMemoryReferenceStore();
 }
 
+/**
+ * Store for the Subunternehmer-Radar.
+ *
+ * Same choice as the reference store: Postgres when configured, the volatile
+ * in-process store otherwise. The screens say so wherever partner data could
+ * be entered.
+ */
+export async function getPartnerStore(): Promise<PartnerStore> {
+  if (hasSupabaseClientConfig()) {
+    const client = await createServerSupabaseClient();
+    return new SupabasePartnerStore(client);
+  }
+
+  return getMemoryPartnerStore();
+}
+
 /** True when the app runs against the in-process demo store. */
 export function isUsingDemoStore(): boolean {
   return !hasSupabaseClientConfig();
 }
 
 export { getIngestionStore } from './ingestion';
+
+export type {
+  PartnerCompanyDetail,
+  PartnerFacets,
+  PartnerMetrics,
+  PartnerStore,
+} from './partner-ports';
 
 export type {
   ClientDetail,
