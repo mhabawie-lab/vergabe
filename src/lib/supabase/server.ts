@@ -41,7 +41,7 @@ export async function createServerSupabaseClient(): Promise<SupabaseClient> {
             cookieStore.set(name, value, options);
           }
         } catch {
-          // Server Components cannot set cookies. The middleware refreshes
+          // Server Components cannot set cookies. src/proxy.ts refreshes
           // the session instead, so this is safe to ignore here.
         }
       },

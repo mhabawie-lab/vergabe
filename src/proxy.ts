@@ -4,16 +4,19 @@ import { NextResponse, type NextRequest } from 'next/server';
 /**
  * Session refresh and route protection.
  *
+ * Next.js 16 renamed this convention from `middleware.ts` to `proxy.ts`; the
+ * behaviour is unchanged, and the exported function has to match the file.
+ *
  * Supabase access tokens are short-lived; without a refresh on each request
- * a Server Component would see an expired session. The middleware refreshes
- * the token and writes the rotated cookies onto the response.
+ * a Server Component would see an expired session. This refreshes the token
+ * and writes the rotated cookies onto the response.
  *
  * It also keeps unauthenticated users out of the application shell. Pages
- * additionally call `requireSession()` — the middleware is a fast first
- * gate, never the only one.
+ * additionally call `requireSession()` — this is a fast first gate, never
+ * the only one.
  *
- * Without Supabase credentials the app runs in local demo mode and this
- * middleware is a no-op.
+ * Without Supabase credentials the app runs in local demo mode and this is
+ * a no-op.
  */
 
 // `/onboarding` is reachable while signed in but without an organisation.
@@ -26,7 +29,7 @@ function isPublicPath(pathname: string): boolean {
   );
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   // The current name first, the legacy one only as a documented transition
   // (see docs/environment-variables.md).
