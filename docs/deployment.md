@@ -78,6 +78,29 @@ Plattform-Stellvertretern, nicht gegen ein Supabase-Projekt.
 
 ---
 
+## 4a. Vercel
+
+`vercel.json` legt `framework: "nextjs"` fest. Ohne diese Angabe behandelt
+Vercel das Projekt als statische Website, sucht nach dem Build einen Ordner
+`public/` und bricht mit „No Output Directory named public found" ab — obwohl
+der Build selbst erfolgreich war.
+
+Build Command, Output Directory und Install Command bleiben in den
+Projekteinstellungen leer; Vercel leitet sie aus dem Framework ab.
+
+Erforderliche Umgebungsvariablen in der Vercel-Projektkonfiguration:
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` und
+`DATA_BACKEND=supabase`. `ALLOW_MEMORY_BACKEND_IN_PRODUCTION` gehört dort
+nicht hin.
+
+Nach dem ersten Deployment die Adresse in Supabase unter *Authentication →
+URL Configuration* als **Site URL** und als **Redirect URL** (mit `/**`)
+eintragen — ohne das schlägt die Anmeldung fehl. Dort gehören konkrete
+Adressen hin, keine Platzhalter wie `https://*.vercel.app/**`: das würde jede
+fremde Vercel-Seite zum gültigen Anmeldeziel machen.
+
+---
+
 ## 5. Gesundheitsprüfung
 
 ```
