@@ -8,6 +8,7 @@
     "db:validate": "node scripts/validate-migrations.mjs",
     "dev": "next dev",
     "ingest:demo": "tsx scripts/run-ingestion.ts demo",
+    "ingest:ted": "tsx scripts/run-ingestion.ts ted-eforms",
     "lint": "eslint",
     "start": "next start",
     "supabase:migrations": "supabase migration list",

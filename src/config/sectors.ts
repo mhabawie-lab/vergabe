@@ -33,7 +33,10 @@ export const SECTORS: readonly SectorDefinition[] = [
     key: 'security_services',
     label: 'Sicherheitsdienstleistungen',
     description: 'Allgemeine Sicherheits- und Wachdienstleistungen.',
-    cpvPrefixes: ['79710000', '79713000'],
+    // 79700000 ("Ermittlungs- und Sicherheitsdienste") is the branch root.
+    // Buyers routinely file under it instead of a child code, so leaving it
+    // out drops genuine security tenders from the sector.
+    cpvPrefixes: ['79700000', '79710000', '79713000'],
   },
   {
     key: 'data_center',
@@ -99,4 +102,42 @@ export function getSectorLabel(key: string): string {
 
 export function isSectorKey(value: string): value is SectorKey {
   return SECTOR_BY_KEY.has(value);
+}
+
+/**
+ * Turns a CPV prefix from `SECTORS` into a comparable prefix.
+ *
+ * CPV codes are hierarchical and padded with trailing zeros: `90910000`
+ * ("Reinigungsdienste") is the parent of `90911200` ("Gebäudereinigung").
+ * Plain `startsWith` would miss that, so the padding is stripped first. The
+ * final check digit is not part of the hierarchy and is never compared.
+ */
+function toCpvPrefix(code: string): string {
+  const digits = code.split('-')[0] ?? code;
+  return digits.replace(/0+$/, '');
+}
+
+/**
+ * Sectors implied by a set of CPV codes.
+ *
+ * Used by mappers whose source classifies tenders by CPV only (TED does) to
+ * fill `tenders.sectors`. Unmatched codes simply yield no sector — the field
+ * stays empty rather than being filled with a guess.
+ */
+export function findSectorsForCpvCodes(cpvCodes: readonly string[]): SectorKey[] {
+  const matched = new Set<SectorKey>();
+
+  for (const sector of SECTORS) {
+    const prefixes = sector.cpvPrefixes.map(toCpvPrefix).filter((p) => p.length > 0);
+    // Only a code at or below the sector's own level counts. The reverse —
+    // a tender filed under a broader parent code — is deliberately not a
+    // match: `90000000` says "some cleaning-adjacent service", not "cleaning".
+    const hit = cpvCodes.some((code) => {
+      const normalized = toCpvPrefix(code.trim());
+      return prefixes.some((prefix) => normalized.startsWith(prefix));
+    });
+    if (hit) matched.add(sector.key);
+  }
+
+  return [...matched];
 }

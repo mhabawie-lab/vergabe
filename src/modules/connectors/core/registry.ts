@@ -7,11 +7,13 @@
  */
 
 import { demoConnector } from '../sources/demo';
+import { tedEformsConnector } from '../sources/ted-eforms';
 import type { TenderConnector } from './types';
 
 const CONNECTORS: readonly TenderConnector[] = [
   demoConnector,
-  // Phase 2: tedConnector, bundPortalConnector, …
+  tedEformsConnector,
+  // Weitere Quellen: bundPortalConnector, laenderConnector, …
 ];
 
 const CONNECTOR_BY_KEY = new Map<string, TenderConnector>(

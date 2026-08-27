@@ -4,13 +4,13 @@ Intelligente Plattform für öffentliche und private Ausschreibungen. Sammelt
 Ausschreibungen aus vielen Quellen, überführt sie in ein gemeinsames internes
 Format, reichert sie an und bewertet ihre Relevanz.
 
-**Aktueller Stand: Phase 4 abgeschlossen** — Supabase-Infrastruktur:
-ausdrückliche Backendwahl ohne stille Rückfälle, Onboarding der ersten
-Organisation, drei private Dokumenten-Buckets mit signierten Downloads,
-automatisierte RLS- und Storage-Prüfungen, CI. Davor: Subunternehmer-Radar,
-eigene Kunden und Referenzprojekte. Als Ausschreibungsquelle ist weiterhin
-ausschließlich die DEMO-Quelle angebunden; Live-Quellen (TED / EU eForms,
-deutsche Bundes-, Landes- und Kommunalportale) folgen später.
+**Aktueller Stand: erste Live-Vergabequelle angebunden** — der TED-/EU-eForms-
+Connector holt echte EU-weite Vergabebekanntmachungen über die öffentliche
+TED-API und führt sie durch dieselbe Pipeline wie die DEMO-Quelle. Davor:
+Supabase-Infrastruktur (ausdrückliche Backendwahl ohne stille Rückfälle,
+Onboarding, private Dokumenten-Buckets mit signierten Downloads, CI),
+Subunternehmer-Radar, eigene Kunden und Referenzprojekte. Die deutschen
+Bundes-, Landes- und Kommunalportale folgen als weitere Connector-Module.
 
 - Architektur, Datenmodell und Phasenplan: [`PROJECT_PLAN.md`](./PROJECT_PLAN.md)
 - Verbindliche Entwicklungsregeln: [`CLAUDE.md`](./CLAUDE.md)
@@ -19,6 +19,7 @@ Anleitungen:
 
 | Thema | Datei |
 |---|---|
+| TED-/eForms-Connector | [`docs/connector-ted-eforms.md`](./docs/connector-ted-eforms.md) |
 | Kunden anlegen und pflegen | [`docs/customers.md`](./docs/customers.md) |
 | Subunternehmer-Radar | [`docs/subcontractor-radar.md`](./docs/subcontractor-radar.md) |
 | Match Score | [`docs/match-score.md`](./docs/match-score.md) |

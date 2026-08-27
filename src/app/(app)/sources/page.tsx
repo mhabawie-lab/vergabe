@@ -45,13 +45,15 @@ export default async function SourcesPage() {
 
       <div className="rounded-xl border border-info/20 bg-info-subtle px-4 py-3">
         <p className="text-sm font-medium text-info">
-          Phase 1: ausschließlich die DEMO-Quelle
+          Erste Live-Quelle: TED / EU eForms
         </p>
         <p className="mt-1 text-xs text-info">
-          Es ist bewusst keine Live-Vergabequelle angebunden. TED / EU eForms
-          sowie die deutschen Bundes-, Landes- und Kommunalportale folgen in
-          Phase 2. Ein neuer Connector wird als eigenes Modul ergänzt — ohne
-          Änderung an der Benutzeroberfläche oder am zentralen Datenmodell.
+          TED liefert echte EU-weite Vergabebekanntmachungen; die DEMO-Quelle
+          bleibt für Entwicklung und Abnahme daneben bestehen und ist überall
+          als DEMO gekennzeichnet. Der Suchbereich (CPV-Codes, Länder,
+          Zeitfenster) steht in <code>sources.config</code> und wird über die
+          Datenbank geändert — nicht über ein Deployment. Die deutschen Bundes-,
+          Landes- und Kommunalportale folgen als weitere Module.
         </p>
       </div>
 

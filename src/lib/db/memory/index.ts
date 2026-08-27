@@ -4,8 +4,12 @@
  * When no Supabase credentials are configured, the app persists into this
  * in-process store instead of Postgres. It is a different *adapter*, not a
  * different architecture: the demo connector, the raw import stage and the
- * normalizer all run exactly as they would against a real database, and every
- * record produced carries `isDemo: true`.
+ * normalizer all run exactly as they would against a real database.
+ *
+ * The bootstrap below seeds demo records only — every one of them flagged
+ * `isDemo: true`. Live sources are registered here as well so the source list
+ * matches a real database, but they are run deliberately (`npm run
+ * ingest:ted`), never by a page render.
  *
  * The store is pinned to `globalThis` rather than kept in module scope.
  * Next.js bundles each route separately, so a module-level singleton would be
@@ -18,7 +22,7 @@
 
 import { logger } from '@/lib/logging';
 import { toErrorMessage } from '@/lib/errors';
-import { ingestAllActiveSources } from '@/modules/ingestion/pipeline';
+import { ingestSource } from '@/modules/ingestion/pipeline';
 import { MemoryIngestionStore } from './ingestion-store';
 import {
   createEmptyDocumentTables,
@@ -36,7 +40,12 @@ import {
   type ReferenceTables,
 } from './reference-store';
 import { MemoryTenderRepository } from './tender-repository';
-import { createDemoSource, createEmptyTables, type MemoryTables } from './tables';
+import {
+  createDemoSource,
+  createEmptyTables,
+  createTedEformsSource,
+  type MemoryTables,
+} from './tables';
 
 interface MemoryStoreRegistry {
   tables: MemoryTables;
@@ -60,7 +69,7 @@ type GlobalWithRegistry = typeof globalThis & {
 
 function createRegistry(): MemoryStoreRegistry {
   const tables = createEmptyTables();
-  tables.sources.push(createDemoSource());
+  tables.sources.push(createDemoSource(), createTedEformsSource());
 
   // Reference data starts empty on purpose: it holds real customer records,
   // so there is no demo seed for it (phase-2 rule on data protection).
@@ -120,8 +129,14 @@ async function runDemoPipeline(registry: MemoryStoreRegistry): Promise<void> {
   });
 
   try {
-    const reports = await ingestAllActiveSources(registry.ingestionStore);
-    for (const report of reports) {
+    // Only demo sources. A live source such as TED is registered and active
+    // here as well, but fetching thousands of real notices from the network
+    // is not something a page render may trigger — that run is started
+    // deliberately, via scripts/run-ingestion.ts or the import endpoint.
+    const sources = await registry.ingestionStore.listActiveSources();
+
+    for (const source of sources.filter((entry) => entry.isDemo)) {
+      const report = await ingestSource(registry.ingestionStore, source);
       logger.info('Demo-Ingestion abgeschlossen', {
         scope: 'db:memory',
         sourceKey: report.sourceKey,

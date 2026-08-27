@@ -8,11 +8,13 @@
 
 import { NormalizationError } from '@/lib/errors';
 import { demoMapper } from './mappers/demo';
+import { tedEformsMapper } from './mappers/ted-eforms';
 import type { MapperContext, TenderDraft, TenderMapper } from './types';
 
 const MAPPERS: readonly TenderMapper[] = [
   demoMapper,
-  // Phase 2: tedMapper, bundPortalMapper, …
+  tedEformsMapper,
+  // Weitere Quellen: bundPortalMapper, laenderMapper, …
 ];
 
 const MAPPER_BY_SOURCE_KEY = new Map<string, TenderMapper>(

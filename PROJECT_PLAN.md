@@ -7,14 +7,19 @@
 > und Referenzprojekte samt Datenimport. Der tatsächliche Umsetzungsstand ist
 > in Kapitel 12 (Phase 1) und Kapitel 13 (Phase 2) dokumentiert.
 >
-> **Abweichend vom ursprünglichen Plan** behandelt Phase 2 nicht TED/eForms,
-> sondern die eigenen Kunden- und Referenzdaten. Die Anbindung erster
-> Live-Vergabequellen verschiebt sich entsprechend nach hinten.
+> **Abweichend vom ursprünglichen Plan** behandelte Phase 2 nicht TED/eForms,
+> sondern die eigenen Kunden- und Referenzdaten. Die Anbindung der ersten
+> Live-Vergabequelle wurde entsprechend nachgezogen (Kapitel 17).
 >
 > **Phase 3A** ergänzt das **Subunternehmer-Radar** — ein rein internes,
 > mandantenprivates Werkzeug. Ausdrücklich **keine** öffentliche Partnerbörse
 > und kein Marktplatz. Kapitel 14 hält die Ausrichtung fest, Kapitel 15 den
 > Umsetzungsstand.
+>
+> **Erste Live-Vergabequelle:** Der **TED-/EU-eForms-Connector** ist angebunden
+> und liefert echte EU-weite Vergabebekanntmachungen. Kapitel 17 hält den Stand
+> fest. Die deutschen Bundes-, Landes- und Kommunalportale folgen als weitere
+> Connector-Module.
 >
 > **Phase 4** in der Umsetzung ist die **Infrastrukturphase**: Supabase-CLI als
 > Projektabhängigkeit, ausdrückliche Backendwahl ohne stille Rückfälle,
@@ -1446,3 +1451,115 @@ ist, steht in `docs/supabase-setup.md`, Abschnitt 3b.
 2. Danach Typen erzeugen und die SQL-Tests einmal gegen die
    Entwicklungsinstanz laufen lassen.
 3. Erst danach Unternehmensradar, Orbis/GLEIF oder TED/eForms.
+
+---
+
+## 17. Umsetzungsstand — TED-/eForms-Connector (erste Live-Quelle)
+
+Mit diesem Schritt ist die in Kapitel 11 (Phase 2) vorgesehene *erste
+produktive Quelle* umgesetzt. Die Pipeline aus Kapitel 3 verläuft damit
+erstmals von einer echten externen Quelle bis in die Oberfläche.
+
+### 17.1 Was angebunden wurde
+
+TED (*Tenders Electronic Daily*), das Amtsblatt der EU für Vergaben, über die
+öffentliche Such-API `api.ted.europa.eu/v3/notices/search` im eForms-Format.
+Die API benötigt **keine Zugangsdaten**; der Connector liest folglich keine
+Umgebungsvariable, und die Liste in `CLAUDE.md` bleibt unverändert.
+
+Vorgefilterter Suchbereich der registrierten Quelle: die Startbranchen
+(Sicherheits-, Wach-, Überwachungs- und Streifendienste, Brandverhütung,
+Reinigung, Unterbringungs- und Pförtnerdienste, soziale Betreuung mit
+Unterbringung) mit Deutschland als Erfüllungsort, Veröffentlichungsfenster
+14 Tage.
+
+### 17.2 Neue Module
+
+| Modul | Aufgabe |
+|---|---|
+| `connectors/sources/ted-eforms/index.ts` | Connector: Seiten holen, Cursor führen, Health-Check |
+| `.../client.ts` | HTTP, Retry mit exponentiellem Backoff, Rate-Limit, Timeout |
+| `.../config.ts` | Zod-Schema für `sources.config` inkl. Standardwerten |
+| `.../query.ts` | Bau der TED-Expertenabfrage aus der Konfiguration |
+| `.../fields.ts` | die 61 angefragten eForms-Terms |
+| `normalizer/mappers/ted-eforms.ts` | Abbildung eForms → gemeinsames internes Format |
+| `migrations/0017_register_ted_eforms_source.sql` | Registrierung der Quelle |
+
+Ergänzt wurden außerdem geteilte Referenzdaten, die nicht TED-spezifisch sind:
+NUTS → Bundesland und ISO alpha-3 → alpha-2 in `src/config/regions.ts`, sowie
+die Auflösung CPV → Branche über die CPV-Hierarchie in `src/config/sectors.ts`.
+
+**Nicht geändert wurden** das Datenmodell, die Ports, die Oberfläche
+(abgesehen von zwei Hinweistexten) und der DEMO-Connector. Der Nachweis, dass
+eine neue Quelle ein reines Zusatzmodul ist, ist damit erbracht.
+
+### 17.3 Eingehaltene Leitplanken
+
+- **Connector ohne Business-Logik.** Er benennt kein Feld um und wandelt kein
+  Datum; die Payload geht unverändert in `raw_imports`. Das gesamte Mapping
+  liegt im Normalizer und ist ohne erneute Abfrage wiederholbar.
+- **Herkunft vollständig.** `sources.key` + `publication-number` an jedem
+  Datensatz; `payload_hash` und `fingerprint` werden mitgeführt.
+- **Aktivierung über Daten.** `sources.is_active` und `sources.config`
+  steuern Lauf und Suchbereich; ein erneuter Migrationslauf setzt eine
+  bewusst abgeschaltete Quelle nicht wieder an.
+- **Live und DEMO getrennt.** Die Quelle ist `is_demo = false`; der Trigger aus
+  `0006` erzwingt die Trennung weiterhin in der Datenbank.
+- **Keine Secrets.** Die API ist öffentlich; Konfigurationswerte werden vor
+  dem Einsetzen in die Abfrage validiert.
+- **Fehler bleiben sichtbar.** Ein fehlerhafter Datensatz scheitert allein,
+  der Rohimport bleibt erhalten, der Grund steht in `normalization_runs`;
+  ein Ausfall der Quelle blockiert weder andere Connectors noch die UI.
+
+### 17.4 Abbildungsentscheidungen — „im Zweifel leer"
+
+Bei Angaben, die eForms nur mehrdeutig liefert, wird nichts geraten. Das
+betrifft vor allem Zuschlagsdaten: TED veröffentlicht Gewinner, Orte und Werte
+als getrennte Arrays, die sich bei mehreren Losen nicht verlässlich einander
+zuordnen lassen. Abgebildet wird der erste Gewinner; Wert, Ort und Bieterzahl
+bleiben leer, sobald sie mehrdeutig sind, und die vollständigen Angaben stehen
+in `source_extras` sowie im Rohimport.
+
+Ebenso bewusst leer bleiben: ein Bundesland des Auftraggebers (TED nennt es
+nicht, eine Postleitzahl ist keines), Eignungskriterien (nicht Teil der
+Suchantwort) und Los-CPV-Codes bei mehreren Losen. Der Status wird nie aus der
+aktuellen Uhrzeit abgeleitet — eine abgelaufene Frist macht keine
+Ausschreibung `closed`, weil der Payload sich danach nicht mehr ändert und der
+Wert dauerhaft stehen bliebe.
+
+Vollständige Beschreibung: `docs/connector-ted-eforms.md`.
+
+### 17.5 Durchgeführte Prüfungen
+
+| Prüfung | Ergebnis |
+|---|---|
+| Erreichbarkeit `api.ted.europa.eu` | HTTP 200 |
+| Alle 61 angefragten eForms-Felder von TED akzeptiert | ja |
+| Health-Check gegen die Live-API | erreichbar, 315 Bekanntmachungen im 14-Tage-Fenster |
+| Live-Lauf: 50 echte Bekanntmachungen abgebildet | 50 ok, 0 fehlgeschlagen, keine Warnungen |
+| Feldabdeckung im Live-Lauf | 50/50 Auftraggeber, 50/50 Branchen, 49/50 Bundesland, 36/50 Angebotsfrist |
+| Vollständiger Pipeline-Lauf gegen den In-Memory-Store | 40 Ausschreibungen, 38 entdoppelte Auftraggeber, 7 Zuschläge, 70 Lose, 80 Dokumente |
+| Idempotenz | Lauf 1: 40 importiert · Lauf 2: 40 übersprungen |
+| 300 echte Bekanntmachungen gegen die SQL-Constraints aus `0004_tenders.sql` | keine Verstöße (Spaltenlängen, Enums, Eindeutigkeit, Wertebereiche) |
+| Migrationsprüfung (`npm run db:validate`) | bestanden, 17 Migrationen |
+
+### 17.6 Offene Punkte
+
+1. **Kein Scheduler.** Läufe werden über `npm run ingest:ted` oder den
+   Import-Endpunkt angestoßen. Ein Cron-Job ist noch einzurichten.
+2. **Kein Dokumenten-Download.** Abgebildet werden die TED-Renditionen
+   (PDF, eForms-XML) als Metadaten; die eigentlichen Vergabeunterlagen liegen
+   auf dem Portal des Auftraggebers und gehören in die Dokumentenphase.
+3. **Eignungskriterien fehlen.** Sie stehen nicht in der Suchantwort; dafür
+   wäre die eForms-XML-Rendition auszuwerten.
+4. **Nur ein Zuschlag je Ausschreibung.** Das gemeinsame Modell trägt
+   `award` einfach; Bekanntmachungen mit mehreren vergebenen Losen sind über
+   `source_extras` und die Rohdaten weiterhin vollständig.
+5. **Dublettenerkennung über Quellen hinweg** wird erst interessant, wenn eine
+   zweite Quelle dieselben Vergaben meldet — die Metadaten laufen bereits mit.
+
+### 17.7 Nächste sinnvolle Schritte
+
+1. Scheduler für den regelmäßigen Import einrichten.
+2. Zweite Quelle (Bund) ergänzen und die Dublettenerkennung scharf schalten.
+3. RPC-Funktion für die Volltext-Relevanzsortierung (offener Punkt aus 12.4).

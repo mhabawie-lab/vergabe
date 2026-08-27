@@ -85,3 +85,49 @@ export function createDemoSource(): Source {
     updatedAt: now,
   };
 }
+
+/**
+ * The TED / EU eForms source row.
+ *
+ * Matches supabase/migrations/0017_register_ted_eforms_source.sql. It is
+ * seeded here too so the in-process store presents the same set of sources as
+ * a real database — a connector that only exists with Supabase configured
+ * would be invisible exactly where it is being developed.
+ *
+ * `isDemo` is false: everything this source produces is a real tender, and the
+ * memory store enforces the same demo/live separation the database trigger
+ * does.
+ */
+export function createTedEformsSource(): Source {
+  const now = new Date().toISOString();
+  return {
+    id: '00000000-0000-4000-8000-000000000002',
+    key: 'ted-eforms',
+    name: 'TED / EU eForms',
+    sourceType: 'api',
+    countryCode: 'DE',
+    websiteUrl: 'https://ted.europa.eu',
+    description:
+      'Tenders Electronic Daily — EU-weite Vergabebekanntmachungen oberhalb der Schwellenwerte im eForms-Format. Echte Live-Daten, gefiltert auf die Startbranchen und Deutschland als Erfüllungsort.',
+    isActive: true,
+    isDemo: false,
+    pollIntervalSeconds: 3_600,
+    config: {
+      cpvCodes: [
+        '797*',
+        '75251110',
+        '90910000',
+        '90911*',
+        '90919*',
+        '98341*',
+        '85311000',
+      ],
+      countries: ['DEU'],
+      lookbackDays: 14,
+      pageSize: 100,
+      maxNoticesPerRun: 5_000,
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+}

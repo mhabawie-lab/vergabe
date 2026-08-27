@@ -91,8 +91,10 @@ export default async function DashboardPage() {
             Demo-Datenbestand — keine echten Ausschreibungen
           </p>
           <p className="mt-1 text-xs text-demo">
-            Es sind ausschließlich synthetische Beispieldaten geladen. Live-Quellen
-            wie TED oder deutsche Vergabeportale werden ab Phase 2 angebunden.
+            Es sind ausschließlich synthetische Beispieldaten geladen. Die
+            Live-Quelle TED / EU eForms ist angebunden, hat aber noch keinen
+            Lauf abgeschlossen. Deutsche Bundes-, Landes- und Kommunalportale
+            folgen später.
           </p>
         </div>
       )}
