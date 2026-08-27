@@ -91,8 +91,9 @@ export default async function DashboardPage() {
             Demo-Datenbestand — keine echten Ausschreibungen
           </p>
           <p className="mt-1 text-xs text-demo">
-            Es sind ausschließlich synthetische Beispieldaten geladen. Live-Quellen
-            wie TED oder deutsche Vergabeportale werden ab Phase 2 angebunden.
+            Der geladene Bestand besteht ausschließlich aus synthetischen
+            Beispieldaten. Live-Quellen wie TED oder deutsche Vergabeportale
+            sind noch nicht angebunden.
           </p>
         </div>
       )}

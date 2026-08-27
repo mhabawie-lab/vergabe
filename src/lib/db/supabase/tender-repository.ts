@@ -617,13 +617,20 @@ export class SupabaseTenderRepository implements TenderRepository {
     return asRows<ConnectorRunRow>(data).map(toConnectorRun);
   }
 
+  /**
+   * True only when demo tenders exist *and* no real ones do.
+   *
+   * An empty table is not a demo dataset — it is an empty table. Answering
+   * "yes" there would make the dashboard announce synthetic data that nobody
+   * ever loaded (CLAUDE.md § 4: no claim without evidence).
+   */
   async isDemoOnly(): Promise<boolean> {
-    const { count, error } = await this.client
-      .from('tenders')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_demo', false);
+    const [real, demo] = await Promise.all([
+      this.client.from('tenders').select('id', { count: 'exact', head: true }).eq('is_demo', false),
+      this.client.from('tenders').select('id', { count: 'exact', head: true }).eq('is_demo', true),
+    ]);
 
-    if (error !== null) return false;
-    return (count ?? 0) === 0;
+    if (real.error !== null || demo.error !== null) return false;
+    return (real.count ?? 0) === 0 && (demo.count ?? 0) > 0;
   }
 }

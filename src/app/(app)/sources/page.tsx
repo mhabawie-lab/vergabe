@@ -30,6 +30,9 @@ export default async function SourcesPage() {
     repository.listConnectorRuns(20),
   ]);
 
+  // Derived from the registered sources, not from a hard-coded phase number:
+  // the notice has to stay true once a live source is added.
+  const liveSources = health.filter((entry) => !entry.source.isDemo);
   const connectors = listConnectors();
   const mappers = listMappers();
   const mapperVersionByKey = new Map(
@@ -45,12 +48,13 @@ export default async function SourcesPage() {
 
       <div className="rounded-xl border border-info/20 bg-info-subtle px-4 py-3">
         <p className="text-sm font-medium text-info">
-          Phase 1: ausschließlich die DEMO-Quelle
+          {liveSources.length === 0
+            ? 'Keine Live-Vergabequelle angebunden'
+            : `${liveSources.length} Live-Quelle${liveSources.length === 1 ? '' : 'n'} angebunden`}
         </p>
         <p className="mt-1 text-xs text-info">
-          Es ist bewusst keine Live-Vergabequelle angebunden. TED / EU eForms
-          sowie die deutschen Bundes-, Landes- und Kommunalportale folgen in
-          Phase 2. Ein neuer Connector wird als eigenes Modul ergänzt — ohne
+          TED / EU eForms sowie die deutschen Bundes-, Landes- und
+          Kommunalportale werden als eigene Connector-Module ergänzt — ohne
           Änderung an der Benutzeroberfläche oder am zentralen Datenmodell.
         </p>
       </div>
