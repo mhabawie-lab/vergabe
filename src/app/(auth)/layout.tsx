@@ -19,9 +19,15 @@ export default function AuthLayout({
 
       <div className="w-full max-w-sm">{children}</div>
 
+      {/*
+        Deliberately says nothing about the data: this page is rendered before
+        anyone is signed in, so it cannot know what the installation holds.
+        The previous wording claimed a DEMO dataset on every installation,
+        including productive ones that hold none.
+      */}
       <p className="mt-6 max-w-sm text-center text-[11px] text-text-muted">
-        Interne Vorabversion. Der Datenbestand besteht in Phase 1 ausschließlich
-        aus gekennzeichneten DEMO-Daten.
+        Interne Anwendung. Der Zugang ist Mitgliedern der jeweiligen
+        Organisation vorbehalten.
       </p>
     </div>
   );

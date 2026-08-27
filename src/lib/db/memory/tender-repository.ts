@@ -520,7 +520,11 @@ export class MemoryTenderRepository implements TenderRepository {
       .slice(0, limit);
   }
 
+  /** See the Supabase adapter: an empty store is not a demo dataset. */
   async isDemoOnly(): Promise<boolean> {
-    return this.tables.tenders.every((tender) => tender.isDemo);
+    return (
+      this.tables.tenders.length > 0 &&
+      this.tables.tenders.every((tender) => tender.isDemo)
+    );
   }
 }
