@@ -247,3 +247,20 @@ describe('Statusseite: keine Behauptung ohne Beleg', () => {
   });
 });
 
+
+describe('Erreichbarkeit ohne Sitzung', () => {
+  const proxy = readFileSync('src/proxy.ts', 'utf8');
+
+  it('24 — der Gesundheitsendpunkt liegt nicht hinter der Anmeldung', () => {
+    // Eine Deployment-Probe hat nie eine Sitzung. Ohne diesen Eintrag
+    // antwortet /api/health mit 307 auf /login statt mit seinem Status.
+    expect(proxy).toContain("'/api/health'");
+    expect(proxy).toMatch(/PUBLIC_PATHS = \[[^\]]*'\/api\/health'/s);
+  });
+
+  it('25 — sonst bleibt jede Anwendungsseite geschützt', () => {
+    // Der Proxy ist die erste Schranke; die Seiten prüfen zusätzlich selbst.
+    expect(proxy).toContain('redirect(loginUrl)');
+    expect(proxy).not.toContain("'/dashboard'");
+  });
+});
