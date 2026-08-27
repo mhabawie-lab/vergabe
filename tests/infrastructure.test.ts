@@ -223,3 +223,27 @@ describe('Dokumentberechtigungen', () => {
     expect(ROLE_PERMISSIONS.bid_manager).not.toContain(partner.destroy);
   });
 });
+
+describe('Statusseite: keine Behauptung ohne Beleg', () => {
+  const status = readFileSync('src/modules/infrastructure/status.ts', 'utf8');
+
+  it('21 — eine leere Bucket-Liste gilt als "nicht sichtbar", nicht als "fehlt"', () => {
+    // storage.buckets steht selbst unter RLS: der Browser-Schlüssel darf
+    // nicht auflisten, und die Antwort ist dann leer statt fehlerhaft.
+    expect(status).toContain('visible.length === 0');
+    expect(status).toContain('kein Beleg');
+  });
+
+  it('22 — aus einer leeren Liste wird nicht auf private Buckets geschlossen', () => {
+    // Die Zusicherung "kein öffentlicher Bucket" darf nur fallen, wenn
+    // überhaupt Buckets sichtbar waren.
+    expect(status).toContain('unter den ${visible.length} sichtbaren');
+    expect(status).not.toContain("detail: 'Kein öffentlicher Bucket.'");
+  });
+
+  it('23 — im Speicherbackend werden alle Storage-Prüfungen übersprungen', () => {
+    expect(status).toContain("'Erwartete Buckets',");
+    expect(status).toContain("'Buckets privat',");
+  });
+});
+

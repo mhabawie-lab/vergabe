@@ -85,7 +85,13 @@ export async function collectInfrastructureStatus(): Promise<InfrastructureStatu
         'Flüchtiger Speicher. Daten gehen beim Neustart verloren; hier gehören ' +
         'keine echten Kunden-, Partner- oder Dokumentdaten hinein.',
     });
-    for (const label of ['Datenbank erreichbar', 'Auth erreichbar', 'Storage erreichbar']) {
+    for (const label of [
+      'Datenbank erreichbar',
+      'Auth erreichbar',
+      'Storage erreichbar',
+      'Erwartete Buckets',
+      'Buckets privat',
+    ]) {
       checks.push({ label, state: 'skipped', detail: 'Kein Supabase-Backend aktiv.' });
     }
   } else {
@@ -126,26 +132,64 @@ export async function collectInfrastructureStatus(): Promise<InfrastructureStatu
           : `Auth-Endpunkt meldet: ${auth.error?.message ?? 'unbekannter Fehler'}`,
       });
 
+      // `storage.buckets` is itself under Row Level Security, and the
+      // publishable key is not permitted to enumerate it — the call succeeds
+      // and returns nothing. An empty list is therefore "cannot see", not
+      // "does not exist": it may neither be reported as missing buckets nor
+      // used to certify that none of them is public. A reassurance without
+      // evidence is worse than an open question (CLAUDE.md § 12).
       const buckets = await client.storage.listBuckets();
+      const visible = buckets.data ?? [];
+      const expected = Object.values(DOCUMENT_BUCKETS);
+
       if (buckets.error !== null) {
         checks.push({
           label: 'Storage erreichbar',
           state: 'failed',
-          detail: `Buckets konnten nicht gelesen werden: ${buckets.error.message}`,
+          detail: `Storage antwortet nicht: ${buckets.error.message}`,
         });
+        for (const label of ['Erwartete Buckets', 'Buckets privat']) {
+          checks.push({
+            label,
+            state: 'skipped',
+            detail: 'Nicht prüfbar, solange Storage nicht antwortet.',
+          });
+        }
+      } else if (visible.length === 0) {
+        checks.push({
+          label: 'Storage erreichbar',
+          state: 'ok',
+          detail: 'Storage-Endpunkt antwortet.',
+        });
+        for (const label of ['Erwartete Buckets', 'Buckets privat']) {
+          checks.push({
+            label,
+            state: 'skipped',
+            detail:
+              'Mit dieser Sitzung sind keine Buckets auflistbar — storage.buckets ' +
+              'unterliegt eigenen Richtlinien. Das ist kein Hinweis auf fehlende ' +
+              'Buckets und kein Beleg dafür, dass keiner öffentlich ist. Bitte im ' +
+              'Supabase-Dashboard unter Storage nachsehen.',
+          });
+        }
       } else {
-        const names = new Set((buckets.data ?? []).map((bucket) => bucket.name));
-        const expected = Object.values(DOCUMENT_BUCKETS);
+        const names = new Set(visible.map((bucket) => bucket.name));
         const missing = expected.filter((name) => !names.has(name));
-        const publicOnes = (buckets.data ?? []).filter((bucket) => bucket.public);
+        const publicOnes = visible.filter((bucket) => bucket.public);
 
         checks.push({
           label: 'Storage erreichbar',
+          state: 'ok',
+          detail: 'Storage-Endpunkt antwortet.',
+        });
+
+        checks.push({
+          label: 'Erwartete Buckets',
           state: missing.length === 0 ? 'ok' : 'warning',
           detail:
             missing.length === 0
               ? `Alle ${expected.length} erwarteten Buckets vorhanden.`
-              : `Fehlende Buckets: ${missing.join(', ')}.`,
+              : `Nicht sichtbar: ${missing.join(', ')}.`,
         });
 
         checks.push({
@@ -153,7 +197,7 @@ export async function collectInfrastructureStatus(): Promise<InfrastructureStatu
           state: publicOnes.length === 0 ? 'ok' : 'failed',
           detail:
             publicOnes.length === 0
-              ? 'Kein öffentlicher Bucket.'
+              ? `Kein öffentlicher Bucket unter den ${visible.length} sichtbaren.`
               : `Öffentlich und damit unzulässig: ${publicOnes
                   .map((bucket) => bucket.name)
                   .join(', ')}.`,
