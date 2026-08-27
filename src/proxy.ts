@@ -21,7 +21,12 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 // `/onboarding` is reachable while signed in but without an organisation.
 // It is not public: the page and its API both re-check the session.
-const PUBLIC_PATHS = ['/login', '/auth'];
+//
+// `/api/health` has to answer without a session — a deployment probe or an
+// uptime monitor never has one, and a 307 to /login reads as "up" to some
+// and as "broken" to others. The endpoint is built to reveal nothing beyond
+// process state and the resolved backend, so exposing it costs nothing.
+const PUBLIC_PATHS = ['/login', '/auth', '/api/health'];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(
