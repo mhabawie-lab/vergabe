@@ -2007,9 +2007,17 @@ export class SupabasePartnerStore implements PartnerStore {
     organizationId: string,
     options: { partnerCompanyId?: string; referenceProjectId?: string },
   ): Promise<AssignmentTreeNode[]> {
+    // The foreign key has to be named: subcontractor_assignments points at
+    // partner_companies twice — once for the company doing the work
+    // (partner_company_id) and once for the contracting party
+    // (contract_partner_company_id). Without the hint PostgREST refuses the
+    // embed as ambiguous, and the page fails to load. This one is the
+    // assigned company, whose name and block state the chain view shows.
     let request = this.client
       .from('subcontractor_assignments')
-      .select('*, partner_companies ( legal_name, is_blocked )')
+      .select(
+        '*, partner_companies!subcontractor_assignments_company_fk ( legal_name, is_blocked )',
+      )
       .eq('organization_id', organizationId);
 
     if (options.referenceProjectId !== undefined) {
