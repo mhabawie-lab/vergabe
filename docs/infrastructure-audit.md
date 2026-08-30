@@ -134,15 +134,14 @@ Supabase-Instanz sind sie noch nicht gelaufen — siehe § 4.
 
 ## 4. Bewusst offen
 
-1. **Kein Lauf gegen ein echtes Supabase-Projekt.** In dieser Umgebung ist der
-   Docker-Daemon nicht erreichbar, also startet keine lokale Supabase-Instanz;
-   Zugangsdaten für ein entferntes Projekt liegen nicht vor. Migrationen,
-   Policies und Buckets sind gegen ein lokales PostgreSQL mit nachgebildetem
-   `auth`- und `storage`-Schema geprüft. Was dieser Stellvertreter nicht
-   abdeckt: die echte Storage-API, die JWT-Auswertung der Plattform und die
-   Durchsetzung der Bucket-Limits.
-2. **`src/types/database.ts` fehlt.** `supabase gen types` braucht eine
-   erreichbare Instanz. Erfundene Typen wären eine ungeprüfte Zusicherung.
+1. ~~Kein Lauf gegen ein echtes Supabase-Projekt.~~ **Erledigt.** Migrationen,
+   Policies, Buckets, alle vier SQL-Suiten, alle Seiten und der komplette
+   Dokumentenweg sind gegen ein echtes Projekt geprüft. Der lokale
+   Stellvertreter bleibt für Prüfungen ohne Zugangsdaten bestehen — er ersetzt
+   den Lauf gegen die Plattform aber nicht, wie drei erst dort gefundene
+   Fehler zeigen (`docs/phase-4-report.md` § 11).
+2. ~~`src/types/database.ts` fehlt.~~ **Erledigt**, aus dem angewendeten
+   Schema erzeugt.
 3. **Kein Virenscanner.** `scan_status` bleibt `not_scanned`, und die
    Oberfläche sagt „nicht geprüft" — nie „sicher".
 4. **Keine Einladungsfunktion für weitere Mitglieder.** Bis dahin werden

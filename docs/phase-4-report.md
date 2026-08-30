@@ -122,15 +122,17 @@ Farbschema, keine Konsolenfehler.
 
 ## 9. Was ohne Zugangsdaten nicht möglich war
 
-1. Kein Lauf gegen ein echtes Supabase-Projekt: kein erreichbarer
-   Docker-Daemon, keine Projekt-Zugangsdaten. Geprüft wurde gegen ein lokales
-   PostgreSQL mit Plattform-Stellvertretern
-   (`supabase/setup/local-platform-shim.sql`). Nicht abgedeckt: die echte
-   Storage-API, die JWT-Auswertung der Plattform, die Durchsetzung der
-   Bucket-Limits.
-2. `src/types/database.ts` wurde **nicht** erzeugt. Der Befehl steht in
-   `docs/database-migrations.md` § 5; erfundene Typen wären eine ungeprüfte
-   Zusicherung.
+1. ~~Kein Lauf gegen ein echtes Supabase-Projekt.~~ **Nachgeholt.** Alle 17
+   Migrationen sind auf ein echtes Projekt angewendet, alle vier SQL-Suiten
+   (103 Prüfungen) dort gelaufen, alle 25 Seiten mit echter Sitzung geladen
+   und der Dokumentenweg vollständig durchgespielt: Upload in den privaten
+   Bucket, SHA-256, signierter Link, Abruf byte-identisch, öffentlicher
+   Zugriff abgewiesen (HTTP 400), Löschen ohne Rückstand. Damit sind auch die
+   echte Storage-API, die JWT-Auswertung und die Bucket-Limits abgedeckt.
+   Dabei kamen drei Fehler zutage, die nur gegen eine echte Datenbank
+   auftreten können — siehe § 11.
+2. ~~`src/types/database.ts` wurde nicht erzeugt.~~ **Nachgeholt**, erzeugt
+   aus dem angewendeten Schema.
 3. Kein Virenscanner angebunden.
 4. Keine Einladungsfunktion für weitere Mitglieder.
 5. Keine Dokumentoberfläche am Kunden (`business_client`) — Datenmodell und
@@ -138,6 +140,31 @@ Farbschema, keine Konsolenfehler.
 
 Die vollständige manuelle Checkliste steht in
 `docs/supabase-one-time-setup.md`.
+
+## 11. Was erst der Betrieb gezeigt hat
+
+Drei Fehler waren weder in 314 Unit-Tests noch in 103 SQL-Prüfungen sichtbar,
+weil der prozessinterne Speicher keine Zeilensicherheit kennt und das lokale
+PostgreSQL kein PostgREST mitbringt:
+
+1. **`audit_log` hatte keine INSERT-Richtlinie.** Einträge aus Triggern
+   entstehen in `security definer`-Funktionen und umgehen die
+   Zeilensicherheit; alles, was die Anwendung mit der Sitzung der
+   angemeldeten Person schrieb, wurde abgewiesen — und riss die ganze Aktion
+   mit. Betroffen: Dokument-Upload, Kundenanlage, Partneranlage,
+   Partnerimport. Behoben durch Migration `0017`.
+2. **Ein fehlgeschlagener Auditeintrag ließ das Dokument stehen.** Die Datei
+   blieb im Bucket, ohne Spur, wer sie abgelegt hat. Der Upload wird jetzt
+   zurückgerollt.
+3. **Mehrdeutige Einbettung** auf `subcontractor_assignments`: zwei
+   Fremdschlüssel auf `partner_companies`, PostgREST verweigert die Abfrage,
+   die Seite bricht ab. Der Fremdschlüssel wird jetzt benannt.
+
+Lehre für die nächsten Phasen: Eine Prüfung gegen den prozessinternen
+Speicher sagt nichts über Zeilensicherheit und nichts über PostgREST. Beides
+braucht einen Lauf gegen eine echte Instanz.
+
+---
 
 ## 10. Nicht begonnen
 
