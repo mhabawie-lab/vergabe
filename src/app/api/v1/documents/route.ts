@@ -3,7 +3,12 @@ import { z } from 'zod';
 import { apiSuccess, handleApiError } from '@/lib/api/response';
 import { hasPermission, requireSession } from '@/lib/auth/session';
 import { getDocumentStore } from '@/lib/db';
-import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
+import {
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+  toErrorMessage,
+} from '@/lib/errors';
 import { logger } from '@/lib/logging';
 import {
   DOCUMENT_OWNER_TYPES,
@@ -190,21 +195,40 @@ export async function POST(request: NextRequest) {
       throw new NotFoundError('Datensatz', metadata.data.ownerId);
     }
 
-    await store.recordAuditEntry({
-      organizationId: session.organization.id,
-      userId: session.profile.id,
-      action: 'document_uploaded',
-      resourceType: 'documents',
-      resourceId: document.id,
-      // Metadata only: never the file name, never the contents.
-      metadata: {
-        ownerType: document.ownerType,
-        credentialType: document.credentialType,
-        bucket: bucketForOwner(document.ownerType),
-        fileSize: document.fileSize,
-        hasExpiryDate: document.validUntil !== null,
-      },
-    });
+    // An upload nobody could log is an upload that did not happen. The store
+    // already rolls the object back when the metadata row fails; the audit
+    // entry comes afterwards, so its failure has to undo both — otherwise a
+    // file stays in the bucket with no trace of who put it there
+    // (CLAUDE.md § 5: security-relevant actions are logged).
+    try {
+      await store.recordAuditEntry({
+        organizationId: session.organization.id,
+        userId: session.profile.id,
+        action: 'document_uploaded',
+        resourceType: 'documents',
+        resourceId: document.id,
+        // Metadata only: never the file name, never the contents.
+        metadata: {
+          ownerType: document.ownerType,
+          credentialType: document.credentialType,
+          bucket: bucketForOwner(document.ownerType),
+          fileSize: document.fileSize,
+          hasExpiryDate: document.validUntil !== null,
+        },
+      });
+    } catch (auditError) {
+      await store
+        .remove(session.organization.id, document.id)
+        .catch((removeError: unknown) => {
+          // Both failed: say so rather than leaving it to be discovered later.
+          logger.error('Verwaistes Dokument nach fehlgeschlagenem Auditeintrag', {
+            scope: 'api:documents',
+            documentId: document.id,
+            error: toErrorMessage(removeError),
+          });
+        });
+      throw auditError;
+    }
 
     logger.info('Dokument hochgeladen', {
       scope: 'api:documents',
